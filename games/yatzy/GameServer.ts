@@ -120,18 +120,23 @@ export default class GameServer implements IGameServer {
         // Play until bot finishes the turn (scores a category) or game is over
         while (!this.state.gameOver && this.state.currentPlayerTurn === botId) {
             if (this.state.rollsLeft > 0) {
-                const upperScore = this.getUpperScore(botId);
-                const dummyScorecard = new Array(15).fill(false);
-                const keepers = await this.bot.botDecideKeepers(this.state.dice, this.state.rollsLeft, dummyScorecard, upperScore);
-                const desiredLocks = this.buildDesiredLocks(keepers, this.state.dice);
-                const toggleIndices: number[] = [];
-                desiredLocks.forEach((wantLocked, idx) => {
-                    if (wantLocked !== this.state.lockedDice[idx]) toggleIndices.push(idx);
-                });
-                if (toggleIndices.length > 0) {
-                    await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'lock', diceIndices: toggleIndices });
+                // First action in a turn: roll without locking
+                if (!this.state.hasRolledThisTurn) {
+                    await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'roll' });
+                } else {
+                    const upperScore = this.getUpperScore(botId);
+                    const dummyScorecard = new Array(15).fill(false);
+                    const keepers = await this.bot.botDecideKeepers(this.state.dice, this.state.rollsLeft, dummyScorecard, upperScore);
+                    const desiredLocks = this.buildDesiredLocks(keepers, this.state.dice);
+                    const toggleIndices: number[] = [];
+                    desiredLocks.forEach((wantLocked, idx) => {
+                        if (wantLocked !== this.state.lockedDice[idx]) toggleIndices.push(idx);
+                    });
+                    if (toggleIndices.length > 0) {
+                        await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'lock', diceIndices: toggleIndices });
+                    }
+                    await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'roll' });
                 }
-                await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'roll' });
             } else {
                 const availableCategories = this.categories.filter(cat => this.state.scores[botId][cat] === null);
                 if (availableCategories.length === 0) return;
@@ -176,10 +181,15 @@ export default class GameServer implements IGameServer {
             this.state.hasRolledThisTurn = true;
             validMove = true;
         } else if (data.action === 'lock' && data.diceIndices) {
-            data.diceIndices.forEach((i: number) => {
-                if (i >= 0 && i < 5) this.state.lockedDice[i] = !this.state.lockedDice[i];
-            });
-            validMove = true;
+            // Disallow locking before first roll in the turn
+            if (!this.state.hasRolledThisTurn) {
+                validMove = false;
+            } else {
+                data.diceIndices.forEach((i: number) => {
+                    if (i >= 0 && i < 5) this.state.lockedDice[i] = !this.state.lockedDice[i];
+                });
+                validMove = true;
+            }
         } else if (data.action === 'score' && data.category && this.state.scores[userId][data.category] === null) {
             // Require at least one roll in the current turn before scoring
             if (!this.state.hasRolledThisTurn) {
