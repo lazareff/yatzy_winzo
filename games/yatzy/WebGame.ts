@@ -1,7 +1,7 @@
 import IWebGame from '../../core/utils/IWebGame';
 import { IGameData, GameScene } from '../../core/utils/common';
 import WebGameHelper from '../../core/utils/WebGameHelper';
-import { INTERNET_STATE, PING_TYPE } from '../../core/utils/enums';
+import { INTERNET_STATE, PING_TYPE, PACKET } from '../../core/utils/enums';
 import { PacketType } from './enums';
 
 export class WebGame implements IWebGame {
@@ -21,6 +21,11 @@ export class WebGame implements IWebGame {
     ];
     private rollsLeft: number = 3;
     private state: any;
+    private lastState: any = null;
+    private actionLog: string[] = [];
+    private actionLogText: any;
+    private scoreBoardText: any;
+    private hasRolledThisTurn: boolean = false;
 
     constructor(game: GameScene) {
         this.game = game;
@@ -40,6 +45,7 @@ export class WebGame implements IWebGame {
         for (let i = 1; i <= 6; i++) {
             game.load.image(`dice${i}`, `./assets/images/dice${i}.png`);
         }
+        game.load.image('diceBlank', './assets/images/-.png');
         game.load.image('rollButton', './assets/images/rollButton.png');
     }
 
@@ -51,7 +57,6 @@ export class WebGame implements IWebGame {
         this.gameHelper = gameHelper;
         this.playerId = window.userId.toString();
         this.gameStarted = true;
-        // Извлекаем имена игроков из config.ts
         this.playerNames = {
             [gameData.playersData.currentPlayerInfo.uid]: gameData.playersData.currentPlayerInfo.name,
             ...gameData.playersData.opponentPlayersInfo.reduce((acc, p) => ({
@@ -85,20 +90,32 @@ export class WebGame implements IWebGame {
     }
 
     onPingUpdate(ping: PING_TYPE) {
-        // update UI as per the ping type
         console.log('ping', ping);
     }
 
     private getPlayerName(uid: string): string {
-        return this.playerNames[uid] || uid;
+        return this.playerNames[uid] || (uid.startsWith('bot') ? 'Bot' : uid);
     }
 
     private updateBoard(data: any) {
-        const { dice, lockedDice, rollsLeft, scores } = data;
+        const { dice: diceValues, lockedDice, rollsLeft, scores } = data;
+        this.state = data;
         this.rollsLeft = rollsLeft;
-        this.diceObjects.forEach((dice, index) => {
-            dice.sprite.setTexture(`dice${dice[index] || 1}`);
-            dice.sprite.setAlpha(lockedDice[index] ? 0.5 : 1.0);
+        const hasRolled = !!data.hasRolledThisTurn;
+
+        this.detectAndLogOpponentAction(this.lastState, data);
+        this.updateScoreBoard(scores);
+        this.lastState = JSON.parse(JSON.stringify(data));
+
+        this.diceObjects.forEach((diceObj, index) => {
+            const showBlank = !hasRolled;
+            if (showBlank) {
+                diceObj.sprite.setTexture('diceBlank');
+                diceObj.sprite.setAlpha(1.0);
+            } else {
+                diceObj.sprite.setTexture(`dice${diceValues[index] || 1}`);
+                diceObj.sprite.setAlpha(lockedDice[index] ? 0.5 : 1.0);
+            }
         });
         this.scoreTableRows.forEach((row, index) => {
             const category = this.categories[index];
@@ -108,12 +125,97 @@ export class WebGame implements IWebGame {
         if (this.rollButton) {
             this.rollButton.sprite.setVisible(rollsLeft > 0 && this.playerTurn);
         }
-        this.headerText.setText(this.playerTurn ? `Your turn! Rolls left: ${rollsLeft}` : `${this.getPlayerName(data.currentPlayerTurn)}'s turn!`);
+        const turnText = this.playerTurn
+            ? (hasRolled ? `Your turn! Rolls left: ${rollsLeft}` : 'Your turn! Press Roll to start')
+            : `${this.getPlayerName(data.currentPlayerTurn)}'s turn!`;
+        this.headerText.setText(turnText);
+    }
+
+    private detectAndLogOpponentAction(prev: any, curr: any) {
+        if (!prev) return;
+        const myId = this.playerId!;
+        const players = Object.keys(curr.scores || {});
+        const opponentId = players.find((p) => p !== myId);
+        if (!opponentId) return;
+
+        if (prev.currentPlayerTurn !== curr.currentPlayerTurn) {
+            const prevActor = prev.currentPlayerTurn;
+            if (prevActor === opponentId) {
+                const prevScores = prev.scores?.[opponentId] || {};
+                const currScores = curr.scores?.[opponentId] || {};
+                let scoredCat: string | null = null;
+                let scoredVal = 0;
+                for (const cat of this.categories) {
+                    const before = prevScores[cat];
+                    const after = currScores[cat];
+                    if ((before == null || before === undefined) && typeof after === 'number') {
+                        scoredCat = cat;
+                        scoredVal = after;
+                        break;
+                    }
+                }
+                if (scoredCat) {
+                    this.appendOpponentAction(`${this.getPlayerName(opponentId)} scored ${scoredCat}: ${scoredVal}`);
+                } else {
+                    this.appendOpponentAction(`${this.getPlayerName(opponentId)} finished turn`);
+                }
+            }
+        } else if (curr.currentPlayerTurn === opponentId) {
+            if (typeof prev.rollsLeft === 'number' && typeof curr.rollsLeft === 'number' && curr.rollsLeft < prev.rollsLeft) {
+                this.appendOpponentAction(`${this.getPlayerName(opponentId)} rolled (rolls left: ${curr.rollsLeft})`);
+            }
+            const prevLocks: boolean[] = prev.lockedDice || [];
+            const currLocks: boolean[] = curr.lockedDice || [];
+            const locked: number[] = [];
+            const unlocked: number[] = [];
+            for (let i = 0; i < Math.max(prevLocks.length, currLocks.length); i++) {
+                if (prevLocks[i] !== currLocks[i]) {
+                    if (currLocks[i]) locked.push(i + 1); else unlocked.push(i + 1);
+                }
+            }
+            if (locked.length) {
+                this.appendOpponentAction(`${this.getPlayerName(opponentId)} locked dice ${locked.join(', ')}`);
+            }
+            if (unlocked.length) {
+                this.appendOpponentAction(`${this.getPlayerName(opponentId)} unlocked dice ${unlocked.join(', ')}`);
+            }
+        }
+    }
+
+    private updateScoreBoard(scores: Record<string, Record<string, number | null>>) {
+        const myId = this.playerId!;
+        const players = Object.keys(scores || {});
+        const opponentId = players.find((p) => p !== myId);
+        const myTotal = this.sumScores(scores[myId]);
+        const oppTotal = opponentId ? this.sumScores(scores[opponentId]) : 0;
+        if (this.scoreBoardText) {
+            this.scoreBoardText.setText(`You: ${myTotal}  |  ${opponentId ? this.getPlayerName(opponentId) : 'Opponent'}: ${oppTotal}`);
+        }
+    }
+
+    private sumScores(scoreMap: Record<string, number | null> | undefined): number {
+        if (!scoreMap) return 0;
+        return Object.values(scoreMap).reduce((sum, v) => sum + (v || 0), 0);
+    }
+
+    private appendOpponentAction(text: string) {
+        this.actionLog.push(text);
+        if (this.actionLog.length > 5) this.actionLog.shift();
+        if (this.actionLogText) {
+            this.actionLogText.setText(this.actionLog.join('\n'));
+        }
     }
 
     private setPlayerTurn(userTurn) {
+        const wasMyTurn = this.playerTurn;
         this.playerTurn = this.playerId === userTurn;
-        this.headerText.setText(this.playerTurn ? `Your turn! Rolls left: ${this.rollsLeft}` : `${this.getPlayerName(userTurn)}'s turn!`);
+        if (this.playerTurn && !wasMyTurn) {
+            this.hasRolledThisTurn = false;
+        }
+        const turnText = this.playerTurn
+            ? (this.hasRolledThisTurn ? `Your turn! Rolls left: ${this.rollsLeft}` : 'Your turn! Press Roll to start')
+            : `${this.getPlayerName(userTurn)}'s turn!`;
+        this.headerText.setText(turnText);
         if (this.rollButton) {
             this.rollButton.sprite.setVisible(this.playerTurn && this.rollsLeft > 0);
         }
@@ -131,9 +233,8 @@ export class WebGame implements IWebGame {
         if (this.rollButton) {
             this.rollButton.sprite.setVisible(false);
         }
-        // Отправляем финальный счёт
         this.gameHelper!.submitScore(
-        // @ts-ignore
+            // @ts-ignore
             Object.values(this.state?.scores[this.playerId!] || {}).reduce((sum, score) => sum + (score || 0), 0)
         );
     }
@@ -158,11 +259,11 @@ export class WebGame implements IWebGame {
         this.diceObjects = [];
         for (let i = 0; i < 5; i++) {
             const sprite = this.game.add
-                .image(startX + i * (diceWidth + diceSpacing), diceY, 'dice1')
+                .image(startX + i * (diceWidth + diceSpacing), diceY, 'diceBlank')
                 .setDisplaySize(diceWidth, diceWidth)
                 .setInteractive({ useHandCursor: true })
                 .on('pointerdown', () => {
-                    if (this.playerTurn && this.gameStarted) {
+                    if (this.playerTurn && this.gameStarted && this.hasRolledThisTurn) {
                         this.gameHelper!.sendMessageToServer({
                             type: PacketType.MOVE,
                             action: 'lock',
@@ -180,6 +281,7 @@ export class WebGame implements IWebGame {
                 .setInteractive({ useHandCursor: true })
                 .on('pointerdown', () => {
                     if (this.playerTurn && this.gameStarted) {
+                        this.hasRolledThisTurn = true;
                         this.gameHelper!.sendMessageToServer({
                             type: PacketType.MOVE,
                             action: 'roll',
@@ -187,6 +289,23 @@ export class WebGame implements IWebGame {
                     }
                 }),
         };
+
+        // Quit button (top-left)
+        const quit = this.game.add
+            .text(16, 16, 'Quit', {
+                fontFamily: 'Arial',
+                fontSize: '18px',
+                color: '#f44',
+                backgroundColor: 'rgba(255,255,255,0.6)'
+            })
+            .setPadding(6, 4, 6, 4)
+            .setInteractive({ useHandCursor: true })
+            .on('pointerdown', () => {
+                try {
+                    window.wss?.send(JSON.stringify({ code: PACKET.CLIENT_TO_SERVER, data: { type: 'LEAVE' } }));
+                    window.wss?.close();
+                } catch {}
+            });
 
         const tableY = diceY + 200;
         const tableWidth = 400;
@@ -202,7 +321,7 @@ export class WebGame implements IWebGame {
                 .setOrigin(0, 0.5)
                 .setInteractive({ useHandCursor: true })
                 .on('pointerdown', () => {
-                    if (this.playerTurn && this.gameStarted) {
+                    if (this.playerTurn && this.gameStarted && this.hasRolledThisTurn) {
                         this.gameHelper!.sendMessageToServer({
                             type: PacketType.MOVE,
                             action: 'score',
@@ -218,5 +337,24 @@ export class WebGame implements IWebGame {
                 .setOrigin(1, 0.5);
             this.scoreTableRows.push({ categoryText, scoreText });
         });
+
+        this.scoreBoardText = this.game.add
+            .text(window.config.GAME_WIDTH / 2, 100, 'You: 0  |  Opponent: 0', {
+                fontFamily: 'Arial',
+                fontSize: '18px',
+            })
+            .setOrigin(0.5);
+
+        this.actionLogText = this.game.add
+            .text(window.config.GAME_WIDTH - 16, 140, '', {
+                fontFamily: 'Arial',
+                fontSize: '16px',
+                align: 'right',
+            })
+            .setOrigin(1, 0);
     }
+
+    private onBlur() {}
+
+    private onFocus() {}
 }

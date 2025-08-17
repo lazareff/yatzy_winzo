@@ -4,6 +4,10 @@ const HtmlWebpackPlugin = require('html-webpack-plugin');
 const path = require('path');
 const TerserPlugin = require('terser-webpack-plugin');
 const glob = require('glob');
+const webpack = require('webpack');
+const dotenv = require('dotenv');
+
+dotenv.config();
 
 const assetPatterns = glob.sync('games/*/assets').map((assetPath) => ({
     from: path.resolve(__dirname, assetPath),
@@ -70,6 +74,10 @@ module.exports = {
         }),
         new CopyPlugin({
             patterns: assetPatterns,
+        }),
+        new webpack.DefinePlugin({
+            'process.env.WS_URL': JSON.stringify(process.env.WS_URL || 'ws://127.0.0.1:9000'),
+            'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
         }),
     ],
 };

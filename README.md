@@ -1,28 +1,116 @@
-# ZO Stack
+# ZO Yatzy
 
-ZO-Stack is a full stack template project for writing both server and web code for server authoritative games at Winzo.
+ZO-Yatzy is a full stack template project for writing both server and web code for server authoritative games at Winzo.
 
-<img width="961" alt="zo_stack" src="https://github.com/user-attachments/assets/a6751a80-f571-48e7-8835-d1fac9ba60af">
+## Rules of the game
 
-## Running on local
+https://desktopgames.com.ua/games/910/yatzy_rules_rus.pdf
 
-- Install nodejs & npm
-  - using brew `brew install node@22`
-  - using [nvm](https://nodejs.org/en/download/package-manager) 
-- Install dependencies - `npm install`
-- Running locally
-  - server - `npm run dev:server`
-  - web - `npm run dev:client` (not needed if making unity based game)
+ 
+## Requirements
 
-## Setup
+- Node.js 21+ (recommended via nvm)
+- npm
+
+## Install
+
+```bash
+npm install
+```
+
+## Scripts
+
+- `npm run dev` — run server and client concurrently
+- `npm run dev:server` — start server with nodemon at `PORT` (default 9000)
+- `npm run dev:client` — start webpack-dev-server on 3000
+- `npm run build` — build server (tsc) + client (webpack)
+- `npm test` — build then run jest
+
+## Running locally
+
+1) Create `.env` in project root (see `.env.example`):
+
+```env
+PORT=9000
+WS_URL=ws://127.0.0.1:9000
+```
+
+2) Start server and client in two terminals or use `npm run dev`:
+
+```bash
+npm run dev:server
+npm run dev:client
+# or
+npm run dev
+```
+
+3) Open client in browser: `http://localhost:3000/`
+
+You can pass a custom player id: `http://localhost:3000/?id=1`
+
+## Environment variables
+
+- `PORT` — server port
+- `WS_URL` — WebSocket URL (used by client bundle)
+
+## Bot and difficulty (Yatzy)
+
+- If only one human joins, a bot can auto-join.
+- Control opponent and difficulty via URL params (client forwards them to server):
+  - Opponent:
+    - `opponent=bot` — second player is a bot (default if only one human)
+    - `opponent=human` — wait for a real second player
+  - Difficulty:
+    - `difficulty=easy|medium|hard`
+
+Examples:
+- `http://localhost:3000/?id=1&opponent=bot&difficulty=easy`
+- `http://localhost:3000/?id=1&opponent=human` (open second tab as `?id=2`)
+
+Default difficulty can be set in `config.ts` under `botDifficulty`.
+
+Levels behavior:
+- easy: чаще выбирает не оптимальный вариант, допускает ошибки
+- medium: периодически ошибается
+- hard: стремится к максимально выгодным решениям
+
+## Project structure
+
+- `core/server/index.ts` — WebSocket server and table management
+- `core/client/*` — Phaser client bootstrap and scene
+- `games/yatzy/*` — Yatzy game server/web logic
+- `config.ts` — game config including `botDifficulty`
+
+## Docker (optional)
+
+Build and run via docker-compose:
+
+```bash
+docker compose up --build
+```
+
+- Binds server to 9000 (mapped to host 9000)
+- Uses `docker.env` for environment variables
+
+Note: Dev compose runs `npm install && npm run dev` inside container and mounts source code. For production, you should create a separate Dockerfile/compose with `npm run build` and a proper process manager.
+
+## Tests
+
+```bash
+npm test
+```
+
+## Troubleshooting
+
+- Client can’t connect to server: ensure `WS_URL` points to reachable ws/wss endpoint
+- Port already in use: change `PORT` in `.env` and restart
+- White screen: check browser console for errors; verify assets are copied and Phaser bundle loaded
+
+## Setup a new game
 
 1. Create a new folder for your game in the `games` folder in parallel to tic-tac-toe sample game folder.
 2. For writing server side code, create a new file `GameServer.ts` inside the newly created folder. Make sure to export a class that implements the `IGameServer` interface.
 3. (Skip this if making unity based game) For writing web code, create a new file `WebGame.ts` inside the same newly created game folder. Make sure to export a class that implements the `IWebGame` interface.
 4. Add any config that is needed for the game in the `config.ts` file.
 5. Point gameToRun to your game in the `config.ts` file.
-
-## Example
-
-There's a sample `Tic-Tac-Toe` game created for reference. Make sure to point gameToRun to `Games.TicTacToe` to run the game.
 

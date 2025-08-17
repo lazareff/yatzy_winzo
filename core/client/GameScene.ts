@@ -9,7 +9,7 @@ import { PACKET } from '../utils/enums';
 declare global {
     interface Window {
         wss: WebSocket;
-        userId: number;
+        userId: string;
         config: {
             GAME_WIDTH: number;
             GAME_HEIGHT: number;

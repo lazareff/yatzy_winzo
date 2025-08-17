@@ -8,8 +8,11 @@ import { LOG_LEVEL, PACKET } from '../utils/enums';
 import IGameServer from '../utils/IGameServer';
 import IGameList from "../utils/IGameList";
 import GameList from "../../games/yatzy/GameList";
+import dotenv from 'dotenv';
 
-const port = parseInt(process.env.port, 10) || parseInt(process.argv[2], 10) || 9000;
+dotenv.config();
+
+const port = parseInt(process.env.PORT || process.env.port || process.argv[2], 10) || 9000;
 
 const app = express();
 
@@ -75,10 +78,29 @@ wss.on('connection', async (client: any, req) => {
     console.log('query param: ' + JSON.stringify(address.query));
     client.winzoId = address.query.winzoId;
 
+    // Read difficulty override from URL query
+    const urlDifficulty = typeof address.query.difficulty === 'string' ? String(address.query.difficulty).toLowerCase() : undefined;
+    const opponentPref = typeof address.query.opponent === 'string' ? String(address.query.opponent).toLowerCase() : undefined;
+
     let res = addJoinedIdToArray(client.winzoId);
     console.log('res', res);
     if (res) {
         gameData.joinedPlayers = res.values;
+        // Auto-add a bot if only one human joins and game expects 2 players
+        if (res.isAdded && gameConfig.noOfPlayers === 2 && gameData.joinedPlayers.length === 1) {
+            const wantsBot = opponentPref !== 'human';
+            if (wantsBot) {
+                const botId = `bot_${res.key}`;
+                gameData.joinedPlayers.push(botId);
+                res.values = gameData.joinedPlayers;
+                res.isFull = true;
+            }
+        }
+        // Apply difficulty override if present
+        if (urlDifficulty && ['easy','medium','hard'].includes(urlDifficulty)) {
+            // @ts-ignore
+            gameData.gameConfig = { ...(gameData.gameConfig || {}), botDifficulty: urlDifficulty };
+        }
         if(res.isAdded && res.isFull) {
             game = new (require(`../../games/${gamesData[gameToRun].name}/GameServer.ts`).default)();
             await game.initialise(gameHelper, gameData);
@@ -101,15 +123,13 @@ wss.on('connection', async (client: any, req) => {
                 let key = clnt.key;
                 let game = gameList.find(item => item.key === key)?.game;
                 gameData.joinedPlayers = clnt.values;
+                // Reconnect: just re-send table info to this client
                 setTimeout(async () => {
-                    gameData.joinedPlayers.forEach(async (player) => {
-                        await sendPacketToClient(player, {
-                            code: PACKET.TABLE_INFO,
-                            data: { ...(await game.getInitialGameState(player)) },
-                        });
+                    await sendPacketToClient(client.winzoId, {
+                        code: PACKET.TABLE_INFO,
+                        data: { ...(await game.getInitialGameState(client.winzoId)) },
                     });
-                    await game.onInitialGameStateSent();
-                }, 1000);
+                }, 500);
             }
         }
     }
@@ -133,8 +153,25 @@ wss.on('connection', async (client: any, req) => {
                 let key = clnt.key;
                 let game = gameList.find(item => item.key === key)?.game;
                 console.log('game', game);
+                if (data.data?.type === 'LEAVE') {
+                    await game.onPlayerLeave(String(client.winzoId));
+                    return;
+                }
                 await game.onMessageFromClient(client.winzoId, data.data);
             }
+        }
+    });
+
+    client.on('close', async () => {
+        try {
+            let clnt = findJoinedIdInArray(client.winzoId);
+            if (clnt && clnt.isFull) {
+                let key = clnt.key;
+                let game = gameList.find(item => item.key === key)?.game;
+                await game.onPlayerLeave(String(client.winzoId));
+            }
+        } catch (e) {
+            console.error('on close error', e);
         }
     });
 
