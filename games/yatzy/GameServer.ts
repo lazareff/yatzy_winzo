@@ -147,9 +147,8 @@ export default class GameServer implements IGameServer {
             } else {
                 const availableCategories = this.categories.filter(cat => this.state.scores[botId][cat] === null);
                 if (availableCategories.length === 0) return;
-                const bestCategory = availableCategories.reduce((best, cat) => {
-                    return this.calculateScore(this.state.dice, cat) > this.calculateScore(this.state.dice, best) ? cat : best;
-                }, availableCategories[0]);
+                const upper = this.getUpperScore(botId);
+                const bestCategory = await this.bot.botChooseCategoryByNames(this.state.dice, this.state.scores[botId], upper);
                 await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'score', category: bestCategory });
             }
         }

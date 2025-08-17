@@ -21,7 +21,7 @@ export default class YatzyBot {
         return freq;
     }
 
-    // Оценка очков для категории (без записи, только расчёт)
+    // Оценка очков для категории (по индексу - совместимость со старым кодом)
     async calculateScoreForCategory(dice, category) {
         const sortedDice = [...dice].sort((a, b) => a - b);
         const freq = await this.getDiceFrequencies(dice);
@@ -86,6 +86,39 @@ export default class YatzyBot {
         }
     }
 
+    // Подсчёт по строковому названию категории (совпадает с серверной логикой)
+    async calculateScoreForCategoryByName(dice: number[], category: string): Promise<number> {
+        const freq: Record<number, number> = {};
+        dice.forEach(d => freq[d] = (freq[d] || 0) + 1);
+        const sum = (nums: number[]) => nums.reduce((a, b) => a + b, 0);
+        switch (category) {
+            case 'Ones': return (freq[1] || 0) * 1;
+            case 'Twos': return (freq[2] || 0) * 2;
+            case 'Threes': return (freq[3] || 0) * 3;
+            case 'Fours': return (freq[4] || 0) * 4;
+            case 'Fives': return (freq[5] || 0) * 5;
+            case 'Sixes': return (freq[6] || 0) * 6;
+            case 'ThreeOfAKind': return Object.values(freq).some(c => c >= 3) ? sum(dice) : 0;
+            case 'FourOfAKind': return Object.values(freq).some(c => c >= 4) ? sum(dice) : 0;
+            case 'FullHouse': {
+                const hasThree = Object.values(freq).includes(3);
+                const hasTwo = Object.values(freq).includes(2);
+                return hasThree && hasTwo ? 25 : 0;
+            }
+            case 'SmallStraight': {
+                const sorted = [...new Set(dice)].sort();
+                return sorted.join('').includes('1234') || sorted.join('').includes('2345') || sorted.join('').includes('3456') ? 30 : 0;
+            }
+            case 'LargeStraight': {
+                const sorted = [...new Set(dice)].sort();
+                return sorted.join('') === '12345' || sorted.join('') === '23456' ? 40 : 0;
+            }
+            case 'Chance': return sum(dice);
+            case 'Yatzy': return dice.every(d => d === dice[0]) ? 50 : 0;
+            default: return 0;
+        }
+    }
+
     // Эвристическая оценка EV для комбинации (упрощённо, на основе вероятностей и приоритетов)
     async estimateEVForKeep(keepDice, rollsLeft, openCategories, upperScore) {
         let ev = 0;
@@ -141,23 +174,21 @@ export default class YatzyBot {
         return Math.random() < 0.2 && candidates[1] ? candidates[1].keep : candidates[0].keep;
     }
 
-    // Основная функция: Выбрать категорию для записи
-    async botChooseCategory(dice: number[], scorecard: boolean[], upperScore: number): Promise<number> {
-        const openCategories = scorecard.map((filled, idx) => !filled ? idx : null).filter(idx => idx !== null);
-
-        let bestCategory = -1;
+    // Основная функция: Выбрать категорию для записи (по именам категорий)
+    async botChooseCategoryByNames(dice: number[], playerScores: Record<string, number | null>, upperScore: number): Promise<string> {
+        const openCategories = Object.keys(playerScores).filter(cat => playerScores[cat] == null && cat !== 'Bonus');
+        let bestCategory = openCategories[0] || '';
         let bestEV = -Infinity;
-
         for (const cat of openCategories) {
-            const score = await this.calculateScoreForCategory(dice, cat);
+            const score = await this.calculateScoreForCategoryByName(dice, cat);
             let ev = score;
-            if (cat <= 5) {
+            if (['Ones','Twos','Threes','Fours','Fives','Sixes'].includes(cat)) {
                 const newUpper = upperScore + score;
                 if (newUpper >= 63 && upperScore < 63) ev += 35;
                 else if (newUpper < 63) ev += (63 - newUpper) / 10;
-            } else if (cat === 14) {
+            } else if (cat === 'Yatzy') {
                 ev += 50;
-            } else if (cat === 13) {
+            } else if (cat === 'Chance') {
                 ev -= 5;
             }
             if (ev > bestEV) {
@@ -165,13 +196,12 @@ export default class YatzyBot {
                 bestCategory = cat;
             }
         }
-
-        if (this.difficulty === 'easy') {
-            // иногда выбирать не лучший
-            return Math.random() < 0.4 && openCategories.length > 1 ? openCategories[Math.floor(Math.random() * openCategories.length)] : bestCategory;
+        if (this.difficulty === 'easy' && openCategories.length > 1) {
+            return Math.random() < 0.4 ? openCategories[Math.floor(Math.random() * openCategories.length)] : bestCategory;
         }
-        if (this.difficulty === 'hard') return bestCategory;
-        // medium
-        return Math.random() < 0.2 && openCategories.length > 1 ? openCategories[Math.floor(Math.random() * openCategories.length)] : bestCategory;
+        if (this.difficulty === 'medium' && openCategories.length > 1) {
+            return Math.random() < 0.2 ? openCategories[Math.floor(Math.random() * openCategories.length)] : bestCategory;
+        }
+        return bestCategory;
     }
 }
