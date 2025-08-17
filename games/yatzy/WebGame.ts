@@ -108,7 +108,7 @@ export class WebGame implements IWebGame {
         this.lastState = JSON.parse(JSON.stringify(data));
 
         this.diceObjects.forEach((diceObj, index) => {
-            const showBlank = (this.playerTurn && !hasRolled) || (!this.playerTurn && this.lastState === null);
+            const showBlank = !hasRolled;
             if (showBlank) {
                 diceObj.sprite.setTexture('diceBlank');
                 diceObj.sprite.setAlpha(1.0);
