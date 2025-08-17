@@ -52,13 +52,19 @@ You can pass a custom player id: `http://localhost:3000/?id=1`
 
 ## Bot and difficulty (Yatzy)
 
-- If only one human joins, a bot will auto-join.
-- Bot difficulty can be set in two ways:
-  - Default via `config.ts`: `botDifficulty: 'easy' | 'medium' | 'hard'`
-  - Override via URL param on the client (forwarded to server):
-    - `http://localhost:3000/?id=1&difficulty=easy`
-    - `http://localhost:3000/?id=1&difficulty=medium`
-    - `http://localhost:3000/?id=1&difficulty=hard`
+- If only one human joins, a bot can auto-join.
+- Control opponent and difficulty via URL params (client forwards them to server):
+  - Opponent:
+    - `opponent=bot` — second player is a bot (default if only one human)
+    - `opponent=human` — wait for a real second player
+  - Difficulty:
+    - `difficulty=easy|medium|hard`
+
+Examples:
+- `http://localhost:3000/?id=1&opponent=bot&difficulty=easy`
+- `http://localhost:3000/?id=1&opponent=human` (open second tab as `?id=2`)
+
+Default difficulty can be set in `config.ts` under `botDifficulty`.
 
 Levels behavior:
 - easy: чаще выбирает не оптимальный вариант, допускает ошибки

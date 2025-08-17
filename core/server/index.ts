@@ -80,6 +80,7 @@ wss.on('connection', async (client: any, req) => {
 
     // Read difficulty override from URL query
     const urlDifficulty = typeof address.query.difficulty === 'string' ? String(address.query.difficulty).toLowerCase() : undefined;
+    const opponentPref = typeof address.query.opponent === 'string' ? String(address.query.opponent).toLowerCase() : undefined;
 
     let res = addJoinedIdToArray(client.winzoId);
     console.log('res', res);
@@ -87,9 +88,13 @@ wss.on('connection', async (client: any, req) => {
         gameData.joinedPlayers = res.values;
         // Auto-add a bot if only one human joins and game expects 2 players
         if (res.isAdded && gameConfig.noOfPlayers === 2 && gameData.joinedPlayers.length === 1) {
-            gameData.joinedPlayers.push('bot_1');
-            res.values = gameData.joinedPlayers;
-            res.isFull = true;
+            const wantsBot = opponentPref !== 'human';
+            if (wantsBot) {
+                const botId = `bot_${res.key}`;
+                gameData.joinedPlayers.push(botId);
+                res.values = gameData.joinedPlayers;
+                res.isFull = true;
+            }
         }
         // Apply difficulty override if present
         if (urlDifficulty && ['easy','medium','hard'].includes(urlDifficulty)) {

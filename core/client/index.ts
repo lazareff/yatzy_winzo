@@ -10,6 +10,10 @@ function wsConnect(id) {
     if (typeof rawDiff === 'string' && rawDiff.trim() !== '') {
         params.set('difficulty', rawDiff.toLowerCase());
     }
+    const opponent = (query as any).opponent;
+    if (typeof opponent === 'string' && opponent.trim() !== '') {
+        params.set('opponent', opponent.toLowerCase());
+    }
     const wss = new WebSocket(`${WS_URL}?${params.toString()}`);
 
     wss.onopen = (ws) => {
