@@ -16,6 +16,7 @@ export default class GameServer implements IGameServer {
         hasRolledThisTurn: boolean;
         roundsPlayed: Record<string, number>;
         roundsPerPlayer: number;
+        pendingJoker: { playerId: string; diceValue: number } | null;
     };
     private players: string[] = [];
     private gameHelper: GameHelper | null = null;
@@ -39,6 +40,7 @@ export default class GameServer implements IGameServer {
                 [p]: {
                     ...this.categories.reduce((cat, c) => ({ ...cat, [c]: null }), {} as Record<string, number | null>),
                     Bonus: null,
+                    YatzyBonus: null,
                 },
             }), {} as Record<string, Record<string, number | null>>),
             currentPlayerTurn: this.players[0] || '',
@@ -47,6 +49,7 @@ export default class GameServer implements IGameServer {
             hasRolledThisTurn: false,
             roundsPlayed: this.players.reduce((acc, p) => ({ ...acc, [p]: 0 }), {} as Record<string, number>),
             roundsPerPlayer,
+            pendingJoker: null,
         };
         const difficulty = (gameData.gameConfig?.botDifficulty as any) || 'medium';
         this.turnTimeoutMs = Number(gameData.gameConfig?.turnTimeoutMs || 30000);
@@ -112,6 +115,43 @@ export default class GameServer implements IGameServer {
         }
     }
 
+    private isYatzy(dice: number[]): boolean {
+        return dice.every(d => d === dice[0]);
+    }
+
+    private getUpperCategoryForValue(value: number): string {
+        const map = { 1: 'Ones', 2: 'Twos', 3: 'Threes', 4: 'Fours', 5: 'Fives', 6: 'Sixes' };
+        return map[value] || '';
+    }
+
+    private handleYatzyBonus(userId: string, dice: number[]): { handled: boolean; needsJokerChoice: boolean } {
+        if (!this.isYatzy(dice)) return { handled: false, needsJokerChoice: false };
+        if (this.state.scores[userId]['Yatzy'] !== 50) return { handled: false, needsJokerChoice: false };
+        
+        // Award +100 bonus
+        const currentBonus = this.state.scores[userId]['YatzyBonus'] || 0;
+        this.state.scores[userId]['YatzyBonus'] = currentBonus + 100;
+        
+        // Joker logic: try to fill upper category for dice value
+        const diceValue = dice[0];
+        const upperCat = this.getUpperCategoryForValue(diceValue);
+        if (upperCat && this.state.scores[userId][upperCat] == null) {
+            this.state.scores[userId][upperCat] = diceValue * 5;
+            return { handled: true, needsJokerChoice: false };
+        }
+        
+        // Upper is filled, need to choose from lower or zero upper
+        return { handled: false, needsJokerChoice: true };
+    }
+
+    private getJokerOptions(userId: string): string[] {
+        const lower = ['ThreeOfAKind', 'FourOfAKind', 'FullHouse', 'SmallStraight', 'LargeStraight', 'Chance'];
+        const upper = ['Ones', 'Twos', 'Threes', 'Fours', 'Fives', 'Sixes'];
+        const openLower = lower.filter(cat => this.state.scores[userId][cat] == null);
+        if (openLower.length > 0) return openLower;
+        return upper.filter(cat => this.state.scores[userId][cat] == null);
+    }
+
     private isGameOver(): boolean {
         // End by rounds per player
         const allRoundsReached = Object.values(this.state.roundsPlayed).every(r => r >= this.state.roundsPerPlayer);
@@ -164,6 +204,15 @@ export default class GameServer implements IGameServer {
                     await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'roll' });
                 }
             } else {
+                // Handle joker if pending
+                if (this.state.pendingJoker?.playerId === botId) {
+                    const options = this.getJokerOptions(botId);
+                    if (options.length > 0) {
+                        const choice = options[0]; // Bot picks first available
+                        await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'joker', category: choice });
+                        return;
+                    }
+                }
                 const availableCategories = this.categories.filter(cat => this.state.scores[botId][cat] === null);
                 if (availableCategories.length === 0) return;
                 const upper = this.getUpperScore(botId);
@@ -214,16 +263,50 @@ export default class GameServer implements IGameServer {
                 });
                 validMove = true;
             }
+        } else if (data.action === 'joker' && data.category && this.state.pendingJoker?.playerId === userId) {
+            // Handle joker choice
+            const options = this.getJokerOptions(userId);
+            if (options.includes(data.category)) {
+                const lower = ['ThreeOfAKind', 'FourOfAKind', 'FullHouse', 'SmallStraight', 'LargeStraight', 'Chance'];
+                if (lower.includes(data.category)) {
+                    // Lower categories get full points for Yatzy joker
+                    this.state.scores[userId][data.category] = this.calculateScore(this.state.dice, data.category);
+                } else {
+                    // Upper categories get 0 (forced)
+                    this.state.scores[userId][data.category] = 0;
+                }
+                this.state.pendingJoker = null;
+                this.state.roundsPlayed[userId] = (this.state.roundsPlayed[userId] || 0) + 1;
+                this.state.rollsLeft = 3;
+                this.state.lockedDice = [false, false, false, false, false];
+                this.state.hasRolledThisTurn = false;
+                this.state.currentPlayerTurn = this.getNextElement(this.players, userId);
+                validMove = true;
+                this.state.gameOver = this.isGameOver();
+            }
         } else if (data.action === 'score' && data.category && this.state.scores[userId][data.category] === null) {
             if (!this.state.hasRolledThisTurn) {
                 validMove = false;
             } else {
+                // Check for Yatzy bonus first
+                const bonusResult = this.handleYatzyBonus(userId, this.state.dice);
+                if (bonusResult.needsJokerChoice) {
+                    this.state.pendingJoker = { playerId: userId, diceValue: this.state.dice[0] };
+                    // Send joker options to client
+                    const options = this.getJokerOptions(userId);
+                    this.gameHelper!.sendMessageToClient(userId, {
+                        type: 'JOKER_CHOICE',
+                        options,
+                        diceValue: this.state.dice[0],
+                    });
+                    return;
+                }
+                
                 this.state.scores[userId][data.category] = this.calculateScore(this.state.dice, data.category);
                 const upper = this.getUpperScore(userId);
                 if ((this.state.scores[userId]['Bonus'] == null) && upper >= 63) {
                     this.state.scores[userId]['Bonus'] = 35;
                 }
-                // increment rounds for this player
                 this.state.roundsPlayed[userId] = (this.state.roundsPlayed[userId] || 0) + 1;
                 this.state.rollsLeft = 3;
                 this.state.lockedDice = [false, false, false, false, false];
@@ -245,6 +328,7 @@ export default class GameServer implements IGameServer {
                     scores: this.state.scores,
                     currentPlayerTurn: this.state.currentPlayerTurn,
                     hasRolledThisTurn: this.state.hasRolledThisTurn,
+                    pendingJoker: this.state.pendingJoker,
                 });
             });
 
@@ -276,6 +360,7 @@ export default class GameServer implements IGameServer {
             scores: this.state.scores,
             currentPlayerTurn: this.state.currentPlayerTurn,
             hasRolledThisTurn: this.state.hasRolledThisTurn,
+            pendingJoker: this.state.pendingJoker,
         };
     }
 
@@ -288,6 +373,7 @@ export default class GameServer implements IGameServer {
             currentPlayerTurn: this.state.currentPlayerTurn,
             gameOver: this.state.gameOver,
             hasRolledThisTurn: this.state.hasRolledThisTurn,
+            pendingJoker: this.state.pendingJoker,
         };
     }
 

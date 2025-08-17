@@ -72,6 +72,8 @@ export class WebGame implements IWebGame {
             this.setPlayerTurn(data.currentPlayerTurn);
         } else if (data.type === PacketType.GAME_OVER) {            
             this.setGameOver(data.winner);
+        } else if (data.type === 'JOKER_CHOICE') {
+            this.showJokerChoice(data.options, data.diceValue);
         }
     }
 
@@ -127,6 +129,39 @@ export class WebGame implements IWebGame {
             case 'Yatzy': return dice.every(d => d === dice[0]) ? 50 : 0;
             default: return 0;
         }
+    }
+
+    private showJokerChoice(options: string[], diceValue: number) {
+        const overlay = this.game.add.rectangle(window.config.GAME_WIDTH / 2, window.config.GAME_HEIGHT / 2, window.config.GAME_WIDTH, window.config.GAME_HEIGHT, 0x000000, 0.7);
+        const title = this.game.add.text(window.config.GAME_WIDTH / 2, window.config.GAME_HEIGHT / 2 - 100, `Yatzy Bonus! +100 points!\nChoose category for dice value ${diceValue}:`, {
+            fontFamily: 'Arial',
+            fontSize: '24px',
+            align: 'center',
+        }).setOrigin(0.5);
+        
+        options.forEach((option, index) => {
+            const button = this.game.add.text(window.config.GAME_WIDTH / 2, window.config.GAME_HEIGHT / 2 - 20 + index * 40, option, {
+                fontFamily: 'Arial',
+                fontSize: '20px',
+                backgroundColor: 'rgba(255,255,255,0.8)',
+                color: '#000',
+            })
+            .setPadding(8, 4, 8, 4)
+            .setOrigin(0.5)
+            .setInteractive({ useHandCursor: true })
+            .on('pointerdown', () => {
+                this.gameHelper!.sendMessageToServer({
+                    type: PacketType.MOVE,
+                    action: 'joker',
+                    category: option,
+                });
+                overlay.destroy();
+                title.destroy();
+                options.forEach((_, i) => {
+                    // Clean up all buttons
+                });
+            });
+        });
     }
 
     private updateBoard(data: any) {
