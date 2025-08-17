@@ -110,6 +110,10 @@ export class WebGame implements IWebGame {
             if (this.playerTurn && !this.hasRolledThisTurn) {
                 diceObj.sprite.setTexture('diceBlank');
                 diceObj.sprite.setAlpha(1.0);
+            } else if (!this.playerTurn && this.lastState === null) {
+                // very first render before any rolls: show blanks
+                diceObj.sprite.setTexture('diceBlank');
+                diceObj.sprite.setAlpha(1.0);
             } else {
                 diceObj.sprite.setTexture(`dice${diceValues[index] || 1}`);
                 diceObj.sprite.setAlpha(lockedDice[index] ? 0.5 : 1.0);

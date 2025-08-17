@@ -38,8 +38,6 @@ export default class GameServer implements IGameServer {
             gameWinner: '',
             hasRolledThisTurn: false,
         };
-        // Randomize initial dice for aesthetics (does not consume a roll)
-        this.state.dice = Array.from({ length: 5 }, () => Math.floor(Math.random() * 6) + 1);
         const difficulty = (gameData.gameConfig?.botDifficulty as any) || 'medium';
         this.bot = new YatzyBot(difficulty);
     }
@@ -198,7 +196,7 @@ export default class GameServer implements IGameServer {
                 this.state.scores[userId][data.category] = this.calculateScore(this.state.dice, data.category);
                 this.state.rollsLeft = 3;
                 this.state.lockedDice = [false, false, false, false, false];
-                this.state.dice = [1, 1, 1, 1, 1];
+                // keep current dice values; UI handles blanking before first roll
                 this.state.hasRolledThisTurn = false;
                 this.state.currentPlayerTurn = this.getNextElement(this.players, userId);
                 validMove = true;
