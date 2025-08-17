@@ -15,6 +15,7 @@ export interface IGameConfig extends Record<string, any> {
     menus: string[];
     botDifficulty?: 'easy' | 'medium' | 'hard';
     turnTimeoutMs?: number;
+    roundsPerPlayer?: number;
 }
 
 interface IPlayerInfo {

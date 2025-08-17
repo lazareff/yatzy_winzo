@@ -14,6 +14,8 @@ export default class GameServer implements IGameServer {
         gameOver: boolean;
         gameWinner: string;
         hasRolledThisTurn: boolean;
+        roundsPlayed: Record<string, number>;
+        roundsPerPlayer: number;
     };
     private players: string[] = [];
     private gameHelper: GameHelper | null = null;
@@ -27,6 +29,7 @@ export default class GameServer implements IGameServer {
     async initialise(gameHelper: GameHelper, gameData: GameData) {
         this.gameHelper = gameHelper;
         this.players = gameData.joinedPlayers;
+        const roundsPerPlayer = Number(gameData.gameConfig?.roundsPerPlayer || 13);
         this.state = {
             dice: [1, 1, 1, 1, 1],
             rollsLeft: 3,
@@ -42,6 +45,8 @@ export default class GameServer implements IGameServer {
             gameOver: false,
             gameWinner: '',
             hasRolledThisTurn: false,
+            roundsPlayed: this.players.reduce((acc, p) => ({ ...acc, [p]: 0 }), {} as Record<string, number>),
+            roundsPerPlayer,
         };
         const difficulty = (gameData.gameConfig?.botDifficulty as any) || 'medium';
         this.turnTimeoutMs = Number(gameData.gameConfig?.turnTimeoutMs || 30000);
@@ -108,6 +113,20 @@ export default class GameServer implements IGameServer {
     }
 
     private isGameOver(): boolean {
+        // End by rounds per player
+        const maxRoundsReached = Object.values(this.state.roundsPlayed).some(r => r >= this.state.roundsPerPlayer);
+        if (maxRoundsReached) {
+            // winner by total
+            const scores = Object.entries(this.state.scores).map(([player, scores]) => ({
+                player,
+                total: Object.values(scores).reduce((sum, score) => sum + (score || 0), 0)
+            }));
+            const maxScore = Math.max(...scores.map(s => s.total));
+            const winners = scores.filter(s => s.total === maxScore);
+            this.state.gameWinner = winners.length === 1 ? winners[0].player : '';
+            return true;
+        }
+        // End by all categories filled
         const allCategoriesFilled = Object.values(this.state.scores).every(playerScores =>
             Object.values(playerScores).every(score => score !== null)
         );
@@ -116,7 +135,7 @@ export default class GameServer implements IGameServer {
                 player,
                 total: Object.values(scores).reduce((sum, score) => sum + (score || 0), 0)
             }));
-        const maxScore = Math.max(...scores.map(s => s.total));
+            const maxScore = Math.max(...scores.map(s => s.total));
             const winners = scores.filter(s => s.total === maxScore);
             this.state.gameWinner = winners.length === 1 ? winners[0].player : '';
             return true;
@@ -200,11 +219,12 @@ export default class GameServer implements IGameServer {
                 validMove = false;
             } else {
                 this.state.scores[userId][data.category] = this.calculateScore(this.state.dice, data.category);
-                // Award upper-section bonus if reached and not yet applied
                 const upper = this.getUpperScore(userId);
                 if ((this.state.scores[userId]['Bonus'] == null) && upper >= 63) {
                     this.state.scores[userId]['Bonus'] = 35;
                 }
+                // increment rounds for this player
+                this.state.roundsPlayed[userId] = (this.state.roundsPlayed[userId] || 0) + 1;
                 this.state.rollsLeft = 3;
                 this.state.lockedDice = [false, false, false, false, false];
                 this.state.hasRolledThisTurn = false;
