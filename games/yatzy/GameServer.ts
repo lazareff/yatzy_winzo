@@ -33,8 +33,11 @@ export default class GameServer implements IGameServer {
             lockedDice: [false, false, false, false, false],
             scores: this.players.reduce((acc, p) => ({
                 ...acc,
-                [p]: this.categories.reduce((cat, c) => ({ ...cat, [c]: null }), {})
-            }), {}),
+                [p]: {
+                    ...this.categories.reduce((cat, c) => ({ ...cat, [c]: null }), {} as Record<string, number | null>),
+                    Bonus: null,
+                },
+            }), {} as Record<string, Record<string, number | null>>),
             currentPlayerTurn: this.players[0] || '',
             gameOver: false,
             gameWinner: '',
@@ -198,6 +201,11 @@ export default class GameServer implements IGameServer {
                 validMove = false;
             } else {
                 this.state.scores[userId][data.category] = this.calculateScore(this.state.dice, data.category);
+                // Award upper-section bonus if reached and not yet applied
+                const upper = this.getUpperScore(userId);
+                if ((this.state.scores[userId]['Bonus'] == null) && upper >= 63) {
+                    this.state.scores[userId]['Bonus'] = 35;
+                }
                 this.state.rollsLeft = 3;
                 this.state.lockedDice = [false, false, false, false, false];
                 this.state.hasRolledThisTurn = false;
