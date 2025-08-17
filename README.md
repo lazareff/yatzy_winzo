@@ -2,8 +2,6 @@
 
 ZO-Stack is a full stack template project for writing both server and web code for server authoritative games at Winzo.
 
-<img width="961" alt="zo_stack" src="https://github.com/user-attachments/assets/a6751a80-f571-48e7-8835-d1fac9ba60af">
-
 ## Requirements
 
 - Node.js 21+ (recommended via nvm)
@@ -110,8 +108,4 @@ npm test
 3. (Skip this if making unity based game) For writing web code, create a new file `WebGame.ts` inside the same newly created game folder. Make sure to export a class that implements the `IWebGame` interface.
 4. Add any config that is needed for the game in the `config.ts` file.
 5. Point gameToRun to your game in the `config.ts` file.
-
-## Example
-
-There's a sample `Tic-Tac-Toe` game created for reference. Make sure to point gameToRun to `Games.TicTacToe` to run the game.
 
