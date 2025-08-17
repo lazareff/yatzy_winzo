@@ -4,40 +4,100 @@ ZO-Stack is a full stack template project for writing both server and web code f
 
 <img width="961" alt="zo_stack" src="https://github.com/user-attachments/assets/a6751a80-f571-48e7-8835-d1fac9ba60af">
 
-## Running on local
+## Requirements
 
-- Install nodejs & npm
-  - using brew `brew install node@22`
-  - using [nvm](https://nodejs.org/en/download/package-manager) 
-- Install dependencies - `npm install`
-- Running locally
-  - server - `npm run dev:server`
-  - web - `npm run dev:client` (not needed if making unity based game)
+- Node.js 21+ (recommended via nvm)
+- npm
 
-## Environment variables
+## Install
 
-Create a `.env` file in project root (see `.env.example`):
-
+```bash
+npm install
 ```
+
+## Scripts
+
+- `npm run dev` — run server and client concurrently
+- `npm run dev:server` — start server with nodemon at `PORT` (default 9000)
+- `npm run dev:client` — start webpack-dev-server on 3000
+- `npm run build` — build server (tsc) + client (webpack)
+- `npm test` — build then run jest
+
+## Running locally
+
+1) Create `.env` in project root (see `.env.example`):
+
+```env
 PORT=9000
 WS_URL=ws://127.0.0.1:9000
 ```
 
-- Server reads `PORT` to listen on.
-- Client bundles `WS_URL` at build/start time and uses it for WebSocket.
+2) Start server and client in two terminals or use `npm run dev`:
 
-## Bot difficulty (Yatzy)
+```bash
+npm run dev:server
+npm run dev:client
+# or
+npm run dev
+```
 
-You can run a game with a bot. If only one player connects, a bot will auto-join.
-Bot difficulty can be overridden via URL:
+3) Open client in browser: `http://localhost:3000/`
 
-- `http://localhost:3000/?id=1&difficulty=easy`
-- `http://localhost:3000/?id=1&difficulty=medium`
-- `http://localhost:3000/?id=1&difficulty=hard`
+You can pass a custom player id: `http://localhost:3000/?id=1`
 
-Alternatively, set default in `config.ts` under `botDifficulty`.
+## Environment variables
 
-## Setup
+- `PORT` — server port
+- `WS_URL` — WebSocket URL (used by client bundle)
+
+## Bot and difficulty (Yatzy)
+
+- If only one human joins, a bot will auto-join.
+- Bot difficulty can be set in two ways:
+  - Default via `config.ts`: `botDifficulty: 'easy' | 'medium' | 'hard'`
+  - Override via URL param on the client (forwarded to server):
+    - `http://localhost:3000/?id=1&difficulty=easy`
+    - `http://localhost:3000/?id=1&difficulty=medium`
+    - `http://localhost:3000/?id=1&difficulty=hard`
+
+Levels behavior:
+- easy: чаще выбирает не оптимальный вариант, допускает ошибки
+- medium: периодически ошибается
+- hard: стремится к максимально выгодным решениям
+
+## Project structure
+
+- `core/server/index.ts` — WebSocket server and table management
+- `core/client/*` — Phaser client bootstrap and scene
+- `games/yatzy/*` — Yatzy game server/web logic
+- `config.ts` — game config including `botDifficulty`
+
+## Docker (optional)
+
+Build and run via docker-compose:
+
+```bash
+docker compose up --build
+```
+
+- Binds server to 9000 (mapped to host 9000)
+- Uses `docker.env` for environment variables
+
+Note: Dev compose runs `npm install && npm run dev` inside container and mounts source code. For production, you should create a separate Dockerfile/compose with `npm run build` and a proper process manager.
+
+## Tests
+
+```bash
+npm test
+```
+
+## Troubleshooting
+
+- Client can’t connect to server: ensure `WS_URL` points to reachable ws/wss endpoint
+- Port already in use: change `PORT` in `.env` and restart
+- White screen: check browser console for errors; verify assets are copied and Phaser bundle loaded
+
+## Setup a new game
 
 1. Create a new folder for your game in the `games` folder in parallel to tic-tac-toe sample game folder.
 2. For writing server side code, create a new file `GameServer.ts` inside the newly created folder. Make sure to export a class that implements the `IGameServer` interface.
