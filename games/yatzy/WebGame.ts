@@ -12,7 +12,7 @@ export class WebGame implements IWebGame {
     private playerId: string | null = null;
     private game: GameScene;
     private diceObjects: { sprite: any }[] = [];
-    private scoreTableRows: { categoryText: any; scoreText: any }[] = [];
+    private scoreTableRows: { categoryText: any; scoreText: any; previewText: any }[] = [];
     private rollButton: { sprite: any } | null = null;
     private playerNames: Record<string, string> = {};
     private categories: string[] = [
@@ -72,6 +72,8 @@ export class WebGame implements IWebGame {
             this.setPlayerTurn(data.currentPlayerTurn);
         } else if (data.type === PacketType.GAME_OVER) {            
             this.setGameOver(data.winner);
+        } else if (data.type === 'JOKER_CHOICE') {
+            this.showJokerChoice(data.options, data.diceValue);
         }
     }
 
@@ -95,6 +97,71 @@ export class WebGame implements IWebGame {
 
     private getPlayerName(uid: string): string {
         return this.playerNames[uid] || (uid.startsWith('bot') ? 'Bot' : uid);
+    }
+
+    private calculatePreviewScore(dice: number[], category: string): number {
+        const freq: Record<number, number> = {};
+        dice.forEach(d => freq[d] = (freq[d] || 0) + 1);
+        const sum = (nums: number[]) => nums.reduce((a, b) => a + b, 0);
+        switch (category) {
+            case 'Ones': return (freq[1] || 0) * 1;
+            case 'Twos': return (freq[2] || 0) * 2;
+            case 'Threes': return (freq[3] || 0) * 3;
+            case 'Fours': return (freq[4] || 0) * 4;
+            case 'Fives': return (freq[5] || 0) * 5;
+            case 'Sixes': return (freq[6] || 0) * 6;
+            case 'ThreeOfAKind': return Object.values(freq).some(c => c >= 3) ? sum(dice) : 0;
+            case 'FourOfAKind': return Object.values(freq).some(c => c >= 4) ? sum(dice) : 0;
+            case 'FullHouse': {
+                const hasThree = Object.values(freq).includes(3);
+                const hasTwo = Object.values(freq).includes(2);
+                return hasThree && hasTwo ? 25 : 0;
+            }
+            case 'SmallStraight': {
+                const sorted = [...new Set(dice)].sort();
+                return sorted.join('').includes('1234') || sorted.join('').includes('2345') || sorted.join('').includes('3456') ? 30 : 0;
+            }
+            case 'LargeStraight': {
+                const sorted = [...new Set(dice)].sort();
+                return sorted.join('') === '12345' || sorted.join('') === '23456' ? 40 : 0;
+            }
+            case 'Chance': return sum(dice);
+            case 'Yatzy': return dice.every(d => d === dice[0]) ? 50 : 0;
+            default: return 0;
+        }
+    }
+
+    private showJokerChoice(options: string[], diceValue: number) {
+        const overlay = this.game.add.rectangle(window.config.GAME_WIDTH / 2, window.config.GAME_HEIGHT / 2, window.config.GAME_WIDTH, window.config.GAME_HEIGHT, 0x000000, 0.7);
+        const title = this.game.add.text(window.config.GAME_WIDTH / 2, window.config.GAME_HEIGHT / 2 - 100, `Yatzy Bonus! +100 points!\nChoose category for dice value ${diceValue}:`, {
+            fontFamily: 'Arial',
+            fontSize: '24px',
+            align: 'center',
+        }).setOrigin(0.5);
+        
+        options.forEach((option, index) => {
+            const button = this.game.add.text(window.config.GAME_WIDTH / 2, window.config.GAME_HEIGHT / 2 - 20 + index * 40, option, {
+                fontFamily: 'Arial',
+                fontSize: '20px',
+                backgroundColor: 'rgba(255,255,255,0.8)',
+                color: '#000',
+            })
+            .setPadding(8, 4, 8, 4)
+            .setOrigin(0.5)
+            .setInteractive({ useHandCursor: true })
+            .on('pointerdown', () => {
+                this.gameHelper!.sendMessageToServer({
+                    type: PacketType.MOVE,
+                    action: 'joker',
+                    category: option,
+                });
+                overlay.destroy();
+                title.destroy();
+                options.forEach((_, i) => {
+                    // Clean up all buttons
+                });
+            });
+        });
     }
 
     private updateBoard(data: any) {
@@ -121,6 +188,9 @@ export class WebGame implements IWebGame {
             const category = this.categories[index];
             const score = scores[this.playerId!]?.[category] ?? '-';
             row.scoreText.setText(score);
+            // Show preview score if category is open and dice are available
+            const preview = (score === '-' && hasRolled) ? this.calculatePreviewScore(diceValues, category) : '';
+            row.previewText.setText(preview);
         });
         if (this.rollButton) {
             this.rollButton.sprite.setVisible(rollsLeft > 0 && this.playerTurn);
@@ -308,7 +378,7 @@ export class WebGame implements IWebGame {
             });
 
         const tableY = diceY + 200;
-        const tableWidth = 400;
+        const tableWidth = 500;
         const rowHeight = 40;
         this.scoreTableRows = [];
         this.categories.forEach((category, index) => {
@@ -330,12 +400,19 @@ export class WebGame implements IWebGame {
                     }
                 });
             const scoreText = this.game.add
-                .text(window.config.GAME_WIDTH / 2 + tableWidth / 2, rowY, '-', {
+                .text(window.config.GAME_WIDTH / 2, rowY, '-', {
                     fontFamily: 'Arial',
                     fontSize: '20px',
                 })
+                .setOrigin(0.5, 0.5);
+            const previewText = this.game.add
+                .text(window.config.GAME_WIDTH / 2 + tableWidth / 2, rowY, '', {
+                    fontFamily: 'Arial',
+                    fontSize: '18px',
+                    color: '#888',
+                })
                 .setOrigin(1, 0.5);
-            this.scoreTableRows.push({ categoryText, scoreText });
+            this.scoreTableRows.push({ categoryText, scoreText, previewText });
         });
 
         this.scoreBoardText = this.game.add
