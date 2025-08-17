@@ -25,6 +25,7 @@ export class WebGame implements IWebGame {
     private actionLog: string[] = [];
     private actionLogText: any;
     private scoreBoardText: any;
+    private hasRolledThisTurn: boolean = false;
 
     constructor(game: GameScene) {
         this.game = game;
@@ -119,7 +120,10 @@ export class WebGame implements IWebGame {
         if (this.rollButton) {
             this.rollButton.sprite.setVisible(rollsLeft > 0 && this.playerTurn);
         }
-        this.headerText.setText(this.playerTurn ? `Your turn! Rolls left: ${rollsLeft}` : `${this.getPlayerName(data.currentPlayerTurn)}'s turn!`);
+        const turnText = this.playerTurn
+            ? (this.hasRolledThisTurn ? `Your turn! Rolls left: ${rollsLeft}` : 'Your turn! Press Roll to start')
+            : `${this.getPlayerName(data.currentPlayerTurn)}'s turn!`;
+        this.headerText.setText(turnText);
     }
 
     private detectAndLogOpponentAction(prev: any, curr: any) {
@@ -200,8 +204,15 @@ export class WebGame implements IWebGame {
     }
 
     private setPlayerTurn(userTurn) {
+        const wasMyTurn = this.playerTurn;
         this.playerTurn = this.playerId === userTurn;
-        this.headerText.setText(this.playerTurn ? `Your turn! Rolls left: ${this.rollsLeft}` : `${this.getPlayerName(userTurn)}'s turn!`);
+        if (this.playerTurn && !wasMyTurn) {
+            this.hasRolledThisTurn = false;
+        }
+        const turnText = this.playerTurn
+            ? (this.hasRolledThisTurn ? `Your turn! Rolls left: ${this.rollsLeft}` : 'Your turn! Press Roll to start')
+            : `${this.getPlayerName(userTurn)}'s turn!`;
+        this.headerText.setText(turnText);
         if (this.rollButton) {
             this.rollButton.sprite.setVisible(this.playerTurn && this.rollsLeft > 0);
         }
@@ -250,7 +261,7 @@ export class WebGame implements IWebGame {
                 .setDisplaySize(diceWidth, diceWidth)
                 .setInteractive({ useHandCursor: true })
                 .on('pointerdown', () => {
-                    if (this.playerTurn && this.gameStarted) {
+                    if (this.playerTurn && this.gameStarted && this.hasRolledThisTurn) {
                         this.gameHelper!.sendMessageToServer({
                             type: PacketType.MOVE,
                             action: 'lock',
@@ -268,6 +279,7 @@ export class WebGame implements IWebGame {
                 .setInteractive({ useHandCursor: true })
                 .on('pointerdown', () => {
                     if (this.playerTurn && this.gameStarted) {
+                        this.hasRolledThisTurn = true;
                         this.gameHelper!.sendMessageToServer({
                             type: PacketType.MOVE,
                             action: 'roll',
@@ -290,7 +302,7 @@ export class WebGame implements IWebGame {
                 .setOrigin(0, 0.5)
                 .setInteractive({ useHandCursor: true })
                 .on('pointerdown', () => {
-                    if (this.playerTurn && this.gameStarted) {
+                    if (this.playerTurn && this.gameStarted && this.hasRolledThisTurn) {
                         this.gameHelper!.sendMessageToServer({
                             type: PacketType.MOVE,
                             action: 'score',
