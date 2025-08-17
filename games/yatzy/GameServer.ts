@@ -115,10 +115,8 @@ export default class GameServer implements IGameServer {
 
     private async runBotTurn(botId: string): Promise<void> {
         if (!this.bot) this.bot = new YatzyBot();
-        // Play until bot finishes the turn (scores a category) or game is over
         while (!this.state.gameOver && this.state.currentPlayerTurn === botId) {
             if (this.state.rollsLeft > 0) {
-                // First action in a turn: roll without locking
                 if (!this.state.hasRolledThisTurn) {
                     await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'roll' });
                 } else {
@@ -179,7 +177,6 @@ export default class GameServer implements IGameServer {
             this.state.hasRolledThisTurn = true;
             validMove = true;
         } else if (data.action === 'lock' && data.diceIndices) {
-            // Disallow locking before first roll in the turn
             if (!this.state.hasRolledThisTurn) {
                 validMove = false;
             } else {
@@ -189,14 +186,12 @@ export default class GameServer implements IGameServer {
                 validMove = true;
             }
         } else if (data.action === 'score' && data.category && this.state.scores[userId][data.category] === null) {
-            // Require at least one roll in the current turn before scoring
             if (!this.state.hasRolledThisTurn) {
                 validMove = false;
             } else {
                 this.state.scores[userId][data.category] = this.calculateScore(this.state.dice, data.category);
                 this.state.rollsLeft = 3;
                 this.state.lockedDice = [false, false, false, false, false];
-                // keep current dice values; UI handles blanking before first roll
                 this.state.hasRolledThisTurn = false;
                 this.state.currentPlayerTurn = this.getNextElement(this.players, userId);
                 validMove = true;
@@ -213,6 +208,7 @@ export default class GameServer implements IGameServer {
                     lockedDice: this.state.lockedDice,
                     scores: this.state.scores,
                     currentPlayerTurn: this.state.currentPlayerTurn,
+                    hasRolledThisTurn: this.state.hasRolledThisTurn,
                 });
             });
 
@@ -242,6 +238,7 @@ export default class GameServer implements IGameServer {
             lockedDice: this.state.lockedDice,
             scores: this.state.scores,
             currentPlayerTurn: this.state.currentPlayerTurn,
+            hasRolledThisTurn: this.state.hasRolledThisTurn,
         };
     }
 
@@ -253,6 +250,7 @@ export default class GameServer implements IGameServer {
             scores: this.state.scores,
             currentPlayerTurn: this.state.currentPlayerTurn,
             gameOver: this.state.gameOver,
+            hasRolledThisTurn: this.state.hasRolledThisTurn,
         };
     }
 

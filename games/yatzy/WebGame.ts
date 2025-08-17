@@ -101,17 +101,15 @@ export class WebGame implements IWebGame {
         const { dice: diceValues, lockedDice, rollsLeft, scores } = data;
         this.state = data;
         this.rollsLeft = rollsLeft;
+        const hasRolled = !!data.hasRolledThisTurn;
 
         this.detectAndLogOpponentAction(this.lastState, data);
         this.updateScoreBoard(scores);
         this.lastState = JSON.parse(JSON.stringify(data));
 
         this.diceObjects.forEach((diceObj, index) => {
-            if (this.playerTurn && !this.hasRolledThisTurn) {
-                diceObj.sprite.setTexture('diceBlank');
-                diceObj.sprite.setAlpha(1.0);
-            } else if (!this.playerTurn && this.lastState === null) {
-                // very first render before any rolls: show blanks
+            const showBlank = (this.playerTurn && !hasRolled) || (!this.playerTurn && this.lastState === null);
+            if (showBlank) {
                 diceObj.sprite.setTexture('diceBlank');
                 diceObj.sprite.setAlpha(1.0);
             } else {
@@ -128,7 +126,7 @@ export class WebGame implements IWebGame {
             this.rollButton.sprite.setVisible(rollsLeft > 0 && this.playerTurn);
         }
         const turnText = this.playerTurn
-            ? (this.hasRolledThisTurn ? `Your turn! Rolls left: ${rollsLeft}` : 'Your turn! Press Roll to start')
+            ? (hasRolled ? `Your turn! Rolls left: ${rollsLeft}` : 'Your turn! Press Roll to start')
             : `${this.getPlayerName(data.currentPlayerTurn)}'s turn!`;
         this.headerText.setText(turnText);
     }
