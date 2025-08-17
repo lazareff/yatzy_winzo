@@ -3,7 +3,14 @@ import { GameHelper } from '../../core/utils/GameServerHelper';
 import IGameServer from '../../core/utils/IGameServer';
 import { PacketType } from './enums';
 
+export type BotDifficulty = 'easy' | 'medium' | 'hard';
+
 export default class YatzyBot {
+    private difficulty: BotDifficulty;
+
+    constructor(difficulty: BotDifficulty = 'medium') {
+        this.difficulty = difficulty;
+    }
 
     // Вспомогательные функции
 
@@ -81,37 +88,29 @@ export default class YatzyBot {
 
     // Эвристическая оценка EV для комбинации (упрощённо, на основе вероятностей и приоритетов)
     async estimateEVForKeep(keepDice, rollsLeft, openCategories, upperScore) {
-        // Упрощённая эвристика: Оценить потенциал для открытых категорий
         let ev = 0;
-        const potential = keepDice.length / 5; // Чем больше держим, тем лучше, если близко к комбо
-        ev += potential * 10; // Базовый бонус за стабильность
-
-        // Приоритет upper bonus, если upperScore < 63
+        const potential = keepDice.length / 5;
+        ev += potential * 10;
         if (upperScore < 63) {
-            ev += (63 - upperScore) / 10; // Мотивация для upper
+            ev += (63 - upperScore) / 10;
         }
-
-        // Если близко к Yahtzee, +высокий EV
         const freq = await this.getDiceFrequencies(keepDice);
-        if (Math.max(...freq.values()) >= 3) ev += 20 * rollsLeft;
-
+        if (Math.max(0, ...freq.values()) >= 3) ev += 20 * rollsLeft;
+        if (this.difficulty === 'easy') ev *= 0.8;
+        if (this.difficulty === 'hard') ev *= 1.2;
         return ev;
     }
 
     // Основная функция: Решить, какие кубики держать
     async botDecideKeepers(dice, rollsLeft, scorecard, upperScore) {
-        if (rollsLeft === 0) return []; // Нет бросков - ничего не держать
+        if (rollsLeft === 0) return [];
 
         const openCategories = scorecard.map((filled, idx) => !filled ? idx : null).filter(idx => idx !== null);
         const freq = await this.getDiceFrequencies(dice);
 
-        // Возможные варианты держать: Все подмножества, но оптимизируем - держать группы по частоте
         const candidates = [];
-
-        // Вариант 1: Держать все (если хорошая комбо)
         candidates.push({keep: dice, ev: await this.estimateEVForKeep(dice, rollsLeft, openCategories, upperScore)});
 
-        // Вариант 2: Держать максимальную группу (для Yahtzee/Kind)
         let maxVal = 0, maxCount = 0;
         freq.forEach((count, val) => {
             if (count > maxCount) {
@@ -122,18 +121,24 @@ export default class YatzyBot {
         const keepGroup = dice.filter(v => v === maxVal);
         candidates.push({keep: keepGroup, ev: await this.estimateEVForKeep(keepGroup, rollsLeft, openCategories, upperScore)});
 
-        // Вариант 3: Держать для straight, если возможно (держать уникальные последовательные)
-        const uniqueSorted = [...new Set(dice.sort())];
+        const uniqueSorted = [...new Set([...dice].sort())];
         if (uniqueSorted.length >= 3) {
-            candidates.push({keep: uniqueSorted, ev: await this.estimateEVForKeep(uniqueSorted, rollsLeft, openCategories, upperScore) + 15}); // Бонус за straight
+            candidates.push({keep: uniqueSorted, ev: await this.estimateEVForKeep(uniqueSorted, rollsLeft, openCategories, upperScore) + 15});
         }
 
-        // Вариант 4: Держать ничего (перебросить все)
-        candidates.push({keep: [], ev: await this.estimateEVForKeep([], rollsLeft, openCategories, upperScore) - 5}); // Штраф за риск
+        candidates.push({keep: [], ev: await this.estimateEVForKeep([], rollsLeft, openCategories, upperScore) - 5});
 
-        // Выбрать лучший по EV
         candidates.sort((a, b) => b.ev - a.ev);
-        return candidates[0].keep;
+
+        if (this.difficulty === 'easy') {
+            const idx = Math.min(1, candidates.length - 1);
+            return candidates[idx].keep;
+        }
+        if (this.difficulty === 'hard') {
+            return candidates[0].keep;
+        }
+        // medium: иногда ошибается
+        return Math.random() < 0.2 && candidates[1] ? candidates[1].keep : candidates[0].keep;
     }
 
     // Основная функция: Выбрать категорию для записи
@@ -144,10 +149,9 @@ export default class YatzyBot {
         let bestEV = -Infinity;
 
         for (const cat of openCategories) {
-            const score = await this.calculateScoreForCategory(dice, cat); // Дождаться результата
+            const score = await this.calculateScoreForCategory(dice, cat);
             let ev = score;
-
-            if (cat <= 5) { // Upper: Учитывать bonus
+            if (cat <= 5) {
                 const newUpper = upperScore + score;
                 if (newUpper >= 63 && upperScore < 63) ev += 35;
                 else if (newUpper < 63) ev += (63 - newUpper) / 10;
@@ -156,13 +160,18 @@ export default class YatzyBot {
             } else if (cat === 13) {
                 ev -= 5;
             }
-
             if (ev > bestEV) {
                 bestEV = ev;
                 bestCategory = cat;
             }
         }
 
-        return bestCategory;
+        if (this.difficulty === 'easy') {
+            // иногда выбирать не лучший
+            return Math.random() < 0.4 && openCategories.length > 1 ? openCategories[Math.floor(Math.random() * openCategories.length)] : bestCategory;
+        }
+        if (this.difficulty === 'hard') return bestCategory;
+        // medium
+        return Math.random() < 0.2 && openCategories.length > 1 ? openCategories[Math.floor(Math.random() * openCategories.length)] : bestCategory;
     }
 }

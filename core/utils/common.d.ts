@@ -13,6 +13,7 @@ export interface IGameConfig extends Record<string, any> {
     currency: string;
     totalWinnings: number;
     menus: string[];
+    botDifficulty?: 'easy' | 'medium' | 'hard';
 }
 
 interface IPlayerInfo {

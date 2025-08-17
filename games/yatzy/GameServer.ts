@@ -2,6 +2,7 @@ import { GameData } from '../../core/utils/common';
 import { GameHelper } from '../../core/utils/GameServerHelper';
 import IGameServer from '../../core/utils/IGameServer';
 import { PacketType } from './enums';
+import YatzyBot from './IBot';
 
 export default class GameServer implements IGameServer {
     private state: {
@@ -19,6 +20,7 @@ export default class GameServer implements IGameServer {
         'Ones', 'Twos', 'Threes', 'Fours', 'Fives', 'Sixes',
         'ThreeOfAKind', 'FourOfAKind', 'FullHouse', 'SmallStraight', 'LargeStraight', 'Chance', 'Yatzy'
     ];
+    private bot: YatzyBot | null = null;
     async initialise(gameHelper: GameHelper, gameData: GameData) {
         this.gameHelper = gameHelper;
         this.players = gameData.joinedPlayers;
@@ -34,6 +36,8 @@ export default class GameServer implements IGameServer {
             gameOver: false,
             gameWinner: '',
         };
+        const difficulty = (gameData.gameConfig?.botDifficulty as any) || 'medium';
+        this.bot = new YatzyBot(difficulty);
     }
 
     private rollDice(): number[] {
@@ -107,6 +111,52 @@ export default class GameServer implements IGameServer {
         return { type: PacketType.MOVE, action: 'score', category: bestCategory };
     }
 
+    private async runBotTurn(botId: string): Promise<void> {
+        if (!this.bot) this.bot = new YatzyBot();
+        // Play until bot finishes the turn (scores a category) or game is over
+        while (!this.state.gameOver && this.state.currentPlayerTurn === botId) {
+            if (this.state.rollsLeft > 0) {
+                const upperScore = this.getUpperScore(botId);
+                const dummyScorecard = new Array(15).fill(false);
+                const keepers = await this.bot.botDecideKeepers(this.state.dice, this.state.rollsLeft, dummyScorecard, upperScore);
+                const desiredLocks = this.buildDesiredLocks(keepers, this.state.dice);
+                const toggleIndices: number[] = [];
+                desiredLocks.forEach((wantLocked, idx) => {
+                    if (wantLocked !== this.state.lockedDice[idx]) toggleIndices.push(idx);
+                });
+                if (toggleIndices.length > 0) {
+                    await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'lock', diceIndices: toggleIndices });
+                }
+                await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'roll' });
+            } else {
+                const availableCategories = this.categories.filter(cat => this.state.scores[botId][cat] === null);
+                if (availableCategories.length === 0) return;
+                const bestCategory = availableCategories.reduce((best, cat) => {
+                    return this.calculateScore(this.state.dice, cat) > this.calculateScore(this.state.dice, best) ? cat : best;
+                }, availableCategories[0]);
+                await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'score', category: bestCategory });
+            }
+        }
+    }
+
+    private buildDesiredLocks(keepers: number[], diceValues: number[]): boolean[] {
+        const countToKeep: Record<number, number> = {};
+        keepers.forEach(v => countToKeep[v] = (countToKeep[v] || 0) + 1);
+        return diceValues.map(v => {
+            const remaining = countToKeep[v] || 0;
+            if (remaining > 0) {
+                countToKeep[v] = remaining - 1;
+                return true;
+            }
+            return false;
+        });
+    }
+
+    private getUpperScore(userId: string): number {
+        const upperCats = ['Ones','Twos','Threes','Fours','Fives','Sixes'];
+        return upperCats.reduce((sum, c) => sum + (this.state.scores[userId][c] || 0), 0);
+    }
+
     async onMessageFromClient(userId: string, data: any) {
         if (userId !== this.state.currentPlayerTurn || this.state.gameOver) {
             return;
@@ -158,11 +208,8 @@ export default class GameServer implements IGameServer {
             }
 
             const nextPlayer = this.players.find(p => p === this.state.currentPlayerTurn);
-            if (nextPlayer && this.players.some(p => p.includes('bot')) && this.state.currentPlayerTurn.includes('bot')) {
-                const botMove = this.botMove(this.state.currentPlayerTurn);
-                if (botMove) {
-                    await this.onMessageFromClient(this.state.currentPlayerTurn, botMove);
-                }
+            if (nextPlayer && this.state.currentPlayerTurn.includes('bot')) {
+                await this.runBotTurn(this.state.currentPlayerTurn);
             }
         }
     }    

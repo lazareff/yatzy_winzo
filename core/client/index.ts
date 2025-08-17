@@ -1,13 +1,16 @@
 import { GameScene } from './GameScene';
 
-const qs = require('querystring');
-var url = require('url');
-
-var url_parts = url.parse(window.location.toString(), true);
-var query = url_parts.query;
+const urlObj = new URL(window.location.href);
+const query = Object.fromEntries(urlObj.searchParams.entries());
 
 function wsConnect(id) {
-    const wss = new WebSocket(`ws://127.0.0.1:9000?winzoId=${id}`);
+    const WS_URL = (process.env.WS_URL as string) || 'ws://127.0.0.1:9000';
+    const params = new URLSearchParams({ winzoId: String(id) });
+    const rawDiff = (query as any).difficulty || (query as any).botDifficulty;
+    if (typeof rawDiff === 'string' && rawDiff.trim() !== '') {
+        params.set('difficulty', rawDiff.toLowerCase());
+    }
+    const wss = new WebSocket(`${WS_URL}?${params.toString()}`);
 
     wss.onopen = (ws) => {
         console.log('connection opened');
@@ -19,7 +22,7 @@ function wsConnect(id) {
     window.wss = wss;
 }
 
-const userId = query.id || parseInt(String(Math.random() * 1000));
+const userId = typeof query.id === 'string' && query.id.trim() !== '' ? query.id : String(Math.floor(Math.random() * 1000));
 wsConnect(userId);
 window.userId = userId;
 

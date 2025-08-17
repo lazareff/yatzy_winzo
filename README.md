@@ -14,6 +14,29 @@ ZO-Stack is a full stack template project for writing both server and web code f
   - server - `npm run dev:server`
   - web - `npm run dev:client` (not needed if making unity based game)
 
+## Environment variables
+
+Create a `.env` file in project root (see `.env.example`):
+
+```
+PORT=9000
+WS_URL=ws://127.0.0.1:9000
+```
+
+- Server reads `PORT` to listen on.
+- Client bundles `WS_URL` at build/start time and uses it for WebSocket.
+
+## Bot difficulty (Yatzy)
+
+You can run a game with a bot. If only one player connects, a bot will auto-join.
+Bot difficulty can be overridden via URL:
+
+- `http://localhost:3000/?id=1&difficulty=easy`
+- `http://localhost:3000/?id=1&difficulty=medium`
+- `http://localhost:3000/?id=1&difficulty=hard`
+
+Alternatively, set default in `config.ts` under `botDifficulty`.
+
 ## Setup
 
 1. Create a new folder for your game in the `games` folder in parallel to tic-tac-toe sample game folder.

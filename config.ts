@@ -13,7 +13,8 @@ export const gamesData: { [key: number]: IGameData } = {
             currency: '₹',
             totalWinnings: 100,
             menus: ['sound', 'vibration', 'quitGame'],
-            noOfPlayers: 2
+            noOfPlayers: 2,
+            botDifficulty: 'medium'
         },
         playersData: {
             currentPlayerInfo: {

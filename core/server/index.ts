@@ -8,8 +8,11 @@ import { LOG_LEVEL, PACKET } from '../utils/enums';
 import IGameServer from '../utils/IGameServer';
 import IGameList from "../utils/IGameList";
 import GameList from "../../games/yatzy/GameList";
+import dotenv from 'dotenv';
 
-const port = parseInt(process.env.port, 10) || parseInt(process.argv[2], 10) || 9000;
+dotenv.config();
+
+const port = parseInt(process.env.PORT || process.env.port || process.argv[2], 10) || 9000;
 
 const app = express();
 
@@ -75,10 +78,24 @@ wss.on('connection', async (client: any, req) => {
     console.log('query param: ' + JSON.stringify(address.query));
     client.winzoId = address.query.winzoId;
 
+    // Read difficulty override from URL query
+    const urlDifficulty = typeof address.query.difficulty === 'string' ? String(address.query.difficulty).toLowerCase() : undefined;
+
     let res = addJoinedIdToArray(client.winzoId);
     console.log('res', res);
     if (res) {
         gameData.joinedPlayers = res.values;
+        // Auto-add a bot if only one human joins and game expects 2 players
+        if (res.isAdded && gameConfig.noOfPlayers === 2 && gameData.joinedPlayers.length === 1) {
+            gameData.joinedPlayers.push('bot_1');
+            res.values = gameData.joinedPlayers;
+            res.isFull = true;
+        }
+        // Apply difficulty override if present
+        if (urlDifficulty && ['easy','medium','hard'].includes(urlDifficulty)) {
+            // @ts-ignore
+            gameData.gameConfig = { ...(gameData.gameConfig || {}), botDifficulty: urlDifficulty };
+        }
         if(res.isAdded && res.isFull) {
             game = new (require(`../../games/${gamesData[gameToRun].name}/GameServer.ts`).default)();
             await game.initialise(gameHelper, gameData);

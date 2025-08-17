@@ -94,11 +94,12 @@ export class WebGame implements IWebGame {
     }
 
     private updateBoard(data: any) {
-        const { dice, lockedDice, rollsLeft, scores } = data;
+        const { dice: diceValues, lockedDice, rollsLeft, scores } = data;
+        this.state = data;
         this.rollsLeft = rollsLeft;
-        this.diceObjects.forEach((dice, index) => {
-            dice.sprite.setTexture(`dice${dice[index] || 1}`);
-            dice.sprite.setAlpha(lockedDice[index] ? 0.5 : 1.0);
+        this.diceObjects.forEach((diceObj, index) => {
+            diceObj.sprite.setTexture(`dice${diceValues[index] || 1}`);
+            diceObj.sprite.setAlpha(lockedDice[index] ? 0.5 : 1.0);
         });
         this.scoreTableRows.forEach((row, index) => {
             const category = this.categories[index];
