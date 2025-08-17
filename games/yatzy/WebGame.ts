@@ -45,6 +45,7 @@ export class WebGame implements IWebGame {
         for (let i = 1; i <= 6; i++) {
             game.load.image(`dice${i}`, `./assets/images/dice${i}.png`);
         }
+        game.load.image('diceBlank', './assets/images/-.png');
         game.load.image('rollButton', './assets/images/rollButton.png');
     }
 
@@ -56,7 +57,6 @@ export class WebGame implements IWebGame {
         this.gameHelper = gameHelper;
         this.playerId = window.userId.toString();
         this.gameStarted = true;
-        // Извлекаем имена игроков из config.ts
         this.playerNames = {
             [gameData.playersData.currentPlayerInfo.uid]: gameData.playersData.currentPlayerInfo.name,
             ...gameData.playersData.opponentPlayersInfo.reduce((acc, p) => ({
@@ -90,7 +90,6 @@ export class WebGame implements IWebGame {
     }
 
     onPingUpdate(ping: PING_TYPE) {
-        // update UI as per the ping type
         console.log('ping', ping);
     }
 
@@ -103,14 +102,18 @@ export class WebGame implements IWebGame {
         this.state = data;
         this.rollsLeft = rollsLeft;
 
-        // Opponent action detection and scoreboard
         this.detectAndLogOpponentAction(this.lastState, data);
         this.updateScoreBoard(scores);
         this.lastState = JSON.parse(JSON.stringify(data));
 
         this.diceObjects.forEach((diceObj, index) => {
-            diceObj.sprite.setTexture(`dice${diceValues[index] || 1}`);
-            diceObj.sprite.setAlpha(lockedDice[index] ? 0.5 : 1.0);
+            if (this.playerTurn && !this.hasRolledThisTurn) {
+                diceObj.sprite.setTexture('diceBlank');
+                diceObj.sprite.setAlpha(1.0);
+            } else {
+                diceObj.sprite.setTexture(`dice${diceValues[index] || 1}`);
+                diceObj.sprite.setAlpha(lockedDice[index] ? 0.5 : 1.0);
+            }
         });
         this.scoreTableRows.forEach((row, index) => {
             const category = this.categories[index];
@@ -133,7 +136,6 @@ export class WebGame implements IWebGame {
         const opponentId = players.find((p) => p !== myId);
         if (!opponentId) return;
 
-        // scoring action: turn switched away from previous player
         if (prev.currentPlayerTurn !== curr.currentPlayerTurn) {
             const prevActor = prev.currentPlayerTurn;
             if (prevActor === opponentId) {
@@ -157,7 +159,6 @@ export class WebGame implements IWebGame {
                 }
             }
         } else if (curr.currentPlayerTurn === opponentId) {
-            // within opponent's turn: detect roll and locks
             if (typeof prev.rollsLeft === 'number' && typeof curr.rollsLeft === 'number' && curr.rollsLeft < prev.rollsLeft) {
                 this.appendOpponentAction(`${this.getPlayerName(opponentId)} rolled (rolls left: ${curr.rollsLeft})`);
             }
@@ -230,7 +231,6 @@ export class WebGame implements IWebGame {
         if (this.rollButton) {
             this.rollButton.sprite.setVisible(false);
         }
-        // Отправляем финальный счёт
         this.gameHelper!.submitScore(
             // @ts-ignore
             Object.values(this.state?.scores[this.playerId!] || {}).reduce((sum, score) => sum + (score || 0), 0)
@@ -257,7 +257,7 @@ export class WebGame implements IWebGame {
         this.diceObjects = [];
         for (let i = 0; i < 5; i++) {
             const sprite = this.game.add
-                .image(startX + i * (diceWidth + diceSpacing), diceY, 'dice1')
+                .image(startX + i * (diceWidth + diceSpacing), diceY, 'diceBlank')
                 .setDisplaySize(diceWidth, diceWidth)
                 .setInteractive({ useHandCursor: true })
                 .on('pointerdown', () => {
@@ -319,7 +319,6 @@ export class WebGame implements IWebGame {
             this.scoreTableRows.push({ categoryText, scoreText });
         });
 
-        // Scoreboard and opponent action log
         this.scoreBoardText = this.game.add
             .text(window.config.GAME_WIDTH / 2, 100, 'You: 0  |  Opponent: 0', {
                 fontFamily: 'Arial',
