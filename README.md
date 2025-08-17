@@ -1,7 +1,12 @@
-# ZO Stack
+# ZO Yatzy
 
-ZO-Stack is a full stack template project for writing both server and web code for server authoritative games at Winzo.
+ZO-Yatzy is a full stack template project for writing both server and web code for server authoritative games at Winzo.
 
+## Rules of the game
+
+https://desktopgames.com.ua/games/910/yatzy_rules_rus.pdf
+
+ 
 ## Requirements
 
 - Node.js 21+ (recommended via nvm)
