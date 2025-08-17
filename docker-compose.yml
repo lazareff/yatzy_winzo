@@ -1,0 +1,20 @@
+
+services:  
+
+  examples:
+    container_name: examples
+    build:
+      context: .
+      args:
+        - NPM_AUTH_TOKEN=${NPM_AUTH_TOKEN}
+    working_dir: /app
+    restart: always
+    tty: true
+    ports:
+      - '9000:9000'
+    volumes:
+      - '.:/app'
+      - examples_node_modules:/app/node_modules
+    command: /bin/sh -c "npm install && npm run dev"
+    env_file:
+      - ./docker.env
