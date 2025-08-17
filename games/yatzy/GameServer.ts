@@ -22,6 +22,8 @@ export default class GameServer implements IGameServer {
         'ThreeOfAKind', 'FourOfAKind', 'FullHouse', 'SmallStraight', 'LargeStraight', 'Chance', 'Yatzy'
     ];
     private bot: YatzyBot | null = null;
+    private turnTimeoutHandle: any = null;
+    private turnTimeoutMs: number = 30000;
     async initialise(gameHelper: GameHelper, gameData: GameData) {
         this.gameHelper = gameHelper;
         this.players = gameData.joinedPlayers;
@@ -39,7 +41,28 @@ export default class GameServer implements IGameServer {
             hasRolledThisTurn: false,
         };
         const difficulty = (gameData.gameConfig?.botDifficulty as any) || 'medium';
+        this.turnTimeoutMs = Number(gameData.gameConfig?.turnTimeoutMs || 30000);
         this.bot = new YatzyBot(difficulty);
+        this.resetTurnTimer();
+    }
+
+    private resetTurnTimer() {
+        if (this.turnTimeoutHandle) clearTimeout(this.turnTimeoutHandle);
+        if (this.state.gameOver) return;
+        this.turnTimeoutHandle = setTimeout(async () => {
+            if (this.state.gameOver) return;
+            const leaver = this.state.currentPlayerTurn;
+            const winner = this.players.find(p => p !== leaver) || '';
+            this.state.gameOver = true;
+            this.state.gameWinner = winner;
+            this.players.forEach((player) => {
+                this.gameHelper!.sendMessageToClient(player, {
+                    type: PacketType.GAME_OVER,
+                    winner: this.state.gameWinner,
+                });
+            });
+            await this.gameHelper!.finishGame(this.state.gameWinner);
+        }, this.turnTimeoutMs);
     }
 
     private rollDice(): number[] {
@@ -90,27 +113,12 @@ export default class GameServer implements IGameServer {
                 player,
                 total: Object.values(scores).reduce((sum, score) => sum + (score || 0), 0)
             }));
-            const maxScore = Math.max(...scores.map(s => s.total));
+        const maxScore = Math.max(...scores.map(s => s.total));
             const winners = scores.filter(s => s.total === maxScore);
             this.state.gameWinner = winners.length === 1 ? winners[0].player : '';
             return true;
         }
         return false;
-    }
-
-    private botMove(playerId: string): { type: number; action: string; diceIndices?: number[]; category?: string } | null {
-        if (this.state.rollsLeft > 0) {
-            return { type: PacketType.MOVE, action: 'roll' };
-        }
-        const availableCategories = this.categories.filter(
-            cat => this.state.scores[playerId][cat] === null
-        );
-        if (availableCategories.length === 0) return null;
-        const bestCategory = availableCategories.reduce((best, cat) => {
-            const score = this.calculateScore(this.state.dice, cat);
-            return score > this.calculateScore(this.state.dice, best) ? cat : best;
-        }, availableCategories[0]);
-        return { type: PacketType.MOVE, action: 'score', category: bestCategory };
     }
 
     private async runBotTurn(botId: string): Promise<void> {
@@ -200,6 +208,7 @@ export default class GameServer implements IGameServer {
         }
 
         if (validMove) {
+            this.resetTurnTimer();
             this.players.forEach((player) => {
                 this.gameHelper!.sendMessageToClient(player, {
                     type: PacketType.CHANGE_TURN,
@@ -213,6 +222,7 @@ export default class GameServer implements IGameServer {
             });
 
             if (this.state.gameOver) {
+                if (this.turnTimeoutHandle) clearTimeout(this.turnTimeoutHandle);
                 this.players.forEach((player) => {
                     this.gameHelper!.sendMessageToClient(player, {
                         type: PacketType.GAME_OVER,
@@ -260,16 +270,32 @@ export default class GameServer implements IGameServer {
     }
 
     async onGameTimeOver(userId: string) {
-        throw new Error('Method not implemented since this is not a time based game.');
+        if (this.state.gameOver) return;
+        // Treat as leave
+        await this.onPlayerLeave(userId);
     }
 
     async onPlayerLeave(userId: string) {
+        if (this.state.gameOver) return;
         this.players = this.players.filter((player) => player !== userId);
-        this.state.currentPlayerTurn = this.players[0] || '';
-        if (this.players.length === 0) {
+        if (this.players.length <= 1) {
+            const winner = this.players[0] || '';
             this.state.gameOver = true;
-            this.state.gameWinner = '';
+            this.state.gameWinner = winner;
+            if (this.turnTimeoutHandle) clearTimeout(this.turnTimeoutHandle);
+            this.players.forEach((player) => {
+                this.gameHelper!.sendMessageToClient(player, {
+                    type: PacketType.GAME_OVER,
+                    winner: this.state.gameWinner,
+                });
+            });
+            await this.gameHelper!.finishGame(this.state.gameWinner);
+            return;
         }
+        if (this.state.currentPlayerTurn === userId) {
+            this.state.currentPlayerTurn = this.players[0] || '';
+        }
+        this.resetTurnTimer();
     }
 
     private getNextElement(array: string[], currentElement: string): string {
@@ -280,7 +306,7 @@ export default class GameServer implements IGameServer {
         const index = array.indexOf(currentElement);
         if (index === -1) {
             console.error(`Элемент "${currentElement}" не найден в массиве`);
-            return '';
+            return array[0];
         }
         const nextIndex = (index + 1) % array.length;
         return array[nextIndex];

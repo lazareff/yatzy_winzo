@@ -14,7 +14,8 @@ export const gamesData: { [key: number]: IGameData } = {
             totalWinnings: 100,
             menus: ['sound', 'vibration', 'quitGame'],
             noOfPlayers: 2,
-            botDifficulty: 'medium'
+            botDifficulty: 'medium',
+            turnTimeoutMs: 30000
         },
         playersData: {
             currentPlayerInfo: {

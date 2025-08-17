@@ -1,7 +1,7 @@
 import IWebGame from '../../core/utils/IWebGame';
 import { IGameData, GameScene } from '../../core/utils/common';
 import WebGameHelper from '../../core/utils/WebGameHelper';
-import { INTERNET_STATE, PING_TYPE } from '../../core/utils/enums';
+import { INTERNET_STATE, PING_TYPE, PACKET } from '../../core/utils/enums';
 import { PacketType } from './enums';
 
 export class WebGame implements IWebGame {
@@ -289,6 +289,23 @@ export class WebGame implements IWebGame {
                     }
                 }),
         };
+
+        // Quit button (top-left)
+        const quit = this.game.add
+            .text(16, 16, 'Quit', {
+                fontFamily: 'Arial',
+                fontSize: '18px',
+                color: '#f44',
+                backgroundColor: 'rgba(255,255,255,0.6)'
+            })
+            .setPadding(6, 4, 6, 4)
+            .setInteractive({ useHandCursor: true })
+            .on('pointerdown', () => {
+                try {
+                    window.wss?.send(JSON.stringify({ code: PACKET.CLIENT_TO_SERVER, data: { type: 'LEAVE' } }));
+                    window.wss?.close();
+                } catch {}
+            });
 
         const tableY = diceY + 200;
         const tableWidth = 400;

@@ -153,8 +153,25 @@ wss.on('connection', async (client: any, req) => {
                 let key = clnt.key;
                 let game = gameList.find(item => item.key === key)?.game;
                 console.log('game', game);
+                if (data.data?.type === 'LEAVE') {
+                    await game.onPlayerLeave(String(client.winzoId));
+                    return;
+                }
                 await game.onMessageFromClient(client.winzoId, data.data);
             }
+        }
+    });
+
+    client.on('close', async () => {
+        try {
+            let clnt = findJoinedIdInArray(client.winzoId);
+            if (clnt && clnt.isFull) {
+                let key = clnt.key;
+                let game = gameList.find(item => item.key === key)?.game;
+                await game.onPlayerLeave(String(client.winzoId));
+            }
+        } catch (e) {
+            console.error('on close error', e);
         }
     });
 
