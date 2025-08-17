@@ -123,15 +123,13 @@ wss.on('connection', async (client: any, req) => {
                 let key = clnt.key;
                 let game = gameList.find(item => item.key === key)?.game;
                 gameData.joinedPlayers = clnt.values;
+                // Reconnect: just re-send table info to this client
                 setTimeout(async () => {
-                    gameData.joinedPlayers.forEach(async (player) => {
-                        await sendPacketToClient(player, {
-                            code: PACKET.TABLE_INFO,
-                            data: { ...(await game.getInitialGameState(player)) },
-                        });
+                    await sendPacketToClient(client.winzoId, {
+                        code: PACKET.TABLE_INFO,
+                        data: { ...(await game.getInitialGameState(client.winzoId)) },
                     });
-                    await game.onInitialGameStateSent();
-                }, 1000);
+                }, 500);
             }
         }
     }
