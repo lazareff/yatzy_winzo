@@ -13,6 +13,7 @@ export default class GameServer implements IGameServer {
         currentPlayerTurn: string;
         gameOver: boolean;
         gameWinner: string;
+        hasRolledThisTurn: boolean;
     };
     private players: string[] = [];
     private gameHelper: GameHelper | null = null;
@@ -35,7 +36,10 @@ export default class GameServer implements IGameServer {
             currentPlayerTurn: this.players[0] || '',
             gameOver: false,
             gameWinner: '',
+            hasRolledThisTurn: false,
         };
+        // Randomize initial dice for aesthetics (does not consume a roll)
+        this.state.dice = Array.from({ length: 5 }, () => Math.floor(Math.random() * 6) + 1);
         const difficulty = (gameData.gameConfig?.botDifficulty as any) || 'medium';
         this.bot = new YatzyBot(difficulty);
     }
@@ -169,6 +173,7 @@ export default class GameServer implements IGameServer {
         if (data.action === 'roll' && this.state.rollsLeft > 0) {
             this.state.dice = this.rollDice();
             this.state.rollsLeft--;
+            this.state.hasRolledThisTurn = true;
             validMove = true;
         } else if (data.action === 'lock' && data.diceIndices) {
             data.diceIndices.forEach((i: number) => {
@@ -176,13 +181,19 @@ export default class GameServer implements IGameServer {
             });
             validMove = true;
         } else if (data.action === 'score' && data.category && this.state.scores[userId][data.category] === null) {
-            this.state.scores[userId][data.category] = this.calculateScore(this.state.dice, data.category);
-            this.state.rollsLeft = 3;
-            this.state.lockedDice = [false, false, false, false, false];
-            this.state.dice = [1, 1, 1, 1, 1];
-            this.state.currentPlayerTurn = this.getNextElement(this.players, userId);
-            validMove = true;
-            this.state.gameOver = this.isGameOver();
+            // Require at least one roll in the current turn before scoring
+            if (!this.state.hasRolledThisTurn) {
+                validMove = false;
+            } else {
+                this.state.scores[userId][data.category] = this.calculateScore(this.state.dice, data.category);
+                this.state.rollsLeft = 3;
+                this.state.lockedDice = [false, false, false, false, false];
+                this.state.dice = [1, 1, 1, 1, 1];
+                this.state.hasRolledThisTurn = false;
+                this.state.currentPlayerTurn = this.getNextElement(this.players, userId);
+                validMove = true;
+                this.state.gameOver = this.isGameOver();
+            }
         }
 
         if (validMove) {
