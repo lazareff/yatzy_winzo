@@ -114,8 +114,8 @@ export default class GameServer implements IGameServer {
 
     private isGameOver(): boolean {
         // End by rounds per player
-        const maxRoundsReached = Object.values(this.state.roundsPlayed).some(r => r >= this.state.roundsPerPlayer);
-        if (maxRoundsReached) {
+        const allRoundsReached = Object.values(this.state.roundsPlayed).every(r => r >= this.state.roundsPerPlayer);
+        if (allRoundsReached) {
             // winner by total
             const scores = Object.entries(this.state.scores).map(([player, scores]) => ({
                 player,
