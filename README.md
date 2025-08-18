@@ -65,13 +65,10 @@ You can pass a custom player id: `http://localhost:3000/?id=1`
   - Mode:
     - `mode=sync` — классический пошаговый режим (по умолчанию)
     - `mode=async` — асинхронный режим: каждый ходит независимо, при этом всегда виден текущий суммарный счёт соперника
-  - Game grouping:
-    - `gameId=<any-string>` — игроки с одинаковым `gameId` попадают за один стол; если не задан, матчмейкинг как раньше
 
 Examples:
 - `http://localhost:3000/?id=1&opponent=bot&difficulty=easy&mode=async`
 - `http://localhost:3000/?id=1&opponent=human&mode=sync` (second tab: `?id=2`)
-- `http://localhost:3000/?id=7&opponent=human&mode=async&gameId=table42` (second tab: `?id=8&gameId=table42`)
 
 Default difficulty can be set in `config.ts` under `botDifficulty`.
 
