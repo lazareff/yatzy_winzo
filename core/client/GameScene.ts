@@ -45,8 +45,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     async loadGame() {
-        let module = await require(`../../games/${gamesData[gameToRun].name}/WebGame`);
-        const Game = module['WebGame'];
+        const module: any = await require(`../../games/${gamesData[gameToRun].name}/WebGame`);
+        const Game: any = module?.WebGame || module?.default || module;
+        if (!Game || typeof Game.preload !== 'function') {
+            throw new Error('WebGame module not found or invalid export');
+        }
         Game.preload(this, this.gameHelper);
         this.gameInstance = new Game(this);
 
