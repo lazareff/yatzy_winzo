@@ -20,6 +20,13 @@ function wsConnect(id) {
         params.set('opponent', finalOpp);
         try { window.localStorage?.setItem('opponent', finalOpp); } catch {}
     }
+    const modeFromQuery = (query as any).mode;
+    const storedMode = window.localStorage?.getItem('mode') || '';
+    const finalMode = (typeof modeFromQuery === 'string' && modeFromQuery.trim() !== '') ? modeFromQuery.toLowerCase() : storedMode;
+    if (finalMode) {
+        params.set('mode', finalMode);
+        try { window.localStorage?.setItem('mode', finalMode); } catch {}
+    }
     const wss = new WebSocket(`${WS_URL}?${params.toString()}`);
 
     wss.onopen = (ws) => {

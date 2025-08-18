@@ -5,6 +5,7 @@ import { PacketType } from './enums';
 import YatzyBot from './IBot';
 
 export default class GameServer implements IGameServer {
+    private mode: 'sync' | 'async' = 'sync';
     private state: {
         dice: number[];
         rollsLeft: number;
@@ -17,6 +18,13 @@ export default class GameServer implements IGameServer {
         roundsPlayed: Record<string, number>;
         roundsPerPlayer: number;
         pendingJoker: { playerId: string; diceValue: number } | null;
+        playersState: Record<string, {
+            dice: number[];
+            rollsLeft: number;
+            lockedDice: boolean[];
+            hasRolledThisTurn: boolean;
+            pendingJoker: { diceValue: number } | null;
+        }>;
     };
     private players: string[] = [];
     private gameHelper: GameHelper | null = null;
@@ -30,6 +38,7 @@ export default class GameServer implements IGameServer {
     async initialise(gameHelper: GameHelper, gameData: GameData) {
         this.gameHelper = gameHelper;
         this.players = gameData.joinedPlayers;
+        this.mode = (gameData.gameConfig?.mode === 'async') ? 'async' : 'sync';
         const roundsPerPlayer = Number(gameData.gameConfig?.roundsPerPlayer || 13);
         this.state = {
             dice: [1, 1, 1, 1, 1],
@@ -50,11 +59,23 @@ export default class GameServer implements IGameServer {
             roundsPlayed: this.players.reduce((acc, p) => ({ ...acc, [p]: 0 }), {} as Record<string, number>),
             roundsPerPlayer,
             pendingJoker: null,
+            playersState: this.players.reduce((acc, p) => ({
+                ...acc,
+                [p]: {
+                    dice: [1,1,1,1,1],
+                    rollsLeft: 3,
+                    lockedDice: [false,false,false,false,false],
+                    hasRolledThisTurn: false,
+                    pendingJoker: null,
+                }
+            }), {} as Record<string, { dice: number[]; rollsLeft: number; lockedDice: boolean[]; hasRolledThisTurn: boolean; pendingJoker: { diceValue: number } | null }>)
         };
         const difficulty = (gameData.gameConfig?.botDifficulty as any) || 'medium';
         this.turnTimeoutMs = Number(gameData.gameConfig?.turnTimeoutMs || 30000);
         this.bot = new YatzyBot(difficulty);
-        this.resetTurnTimer();
+        if (this.mode === 'sync') {
+            this.resetTurnTimer();
+        }
     }
 
     private resetTurnTimer() {
@@ -80,6 +101,10 @@ export default class GameServer implements IGameServer {
         return this.state.lockedDice.map((locked, i) =>
             locked ? this.state.dice[i] : Math.floor(Math.random() * 6) + 1
         );
+    }
+    private rollDiceForPlayer(userId: string): number[] {
+        const ps = this.state.playersState[userId];
+        return ps.lockedDice.map((locked, i) => locked ? ps.dice[i] : Math.floor(Math.random() * 6) + 1);
     }
 
     private calculateScore(dice: number[], category: string): number {
@@ -185,6 +210,11 @@ export default class GameServer implements IGameServer {
 
     private async runBotTurn(botId: string): Promise<void> {
         if (!this.bot) this.bot = new YatzyBot();
+        if (this.mode === 'async') {
+            // In async mode, delegate to round runner
+            await this.runBotRound(botId);
+            return;
+        }
         while (!this.state.gameOver && this.state.currentPlayerTurn === botId) {
             if (this.state.rollsLeft > 0) {
                 if (!this.state.hasRolledThisTurn) {
@@ -221,6 +251,33 @@ export default class GameServer implements IGameServer {
             }
         }
     }
+    private async runBotRound(botId: string): Promise<void> {
+        const ps = this.state.playersState[botId];
+        if (!this.bot) this.bot = new YatzyBot();
+        if (!ps) return;
+        while (!this.state.gameOver && ps.rollsLeft > 0) {
+            if (!ps.hasRolledThisTurn) {
+                await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'roll' });
+            } else {
+                const upperScore = this.getUpperScore(botId);
+                const dummyScorecard = new Array(15).fill(false);
+                const keepers = await this.bot.botDecideKeepers(ps.dice, ps.rollsLeft, dummyScorecard, upperScore);
+                const desiredLocks = this.buildDesiredLocks(keepers, ps.dice);
+                const toggleIndices: number[] = [];
+                desiredLocks.forEach((wantLocked, idx) => {
+                    if (wantLocked !== ps.lockedDice[idx]) toggleIndices.push(idx);
+                });
+                if (toggleIndices.length > 0) {
+                    await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'lock', diceIndices: toggleIndices });
+                }
+                await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'roll' });
+            }
+        }
+        if (this.state.gameOver) return;
+        const upper = this.getUpperScore(botId);
+        const bestCategory = await this.bot.botChooseCategoryByNames(ps.dice, this.state.scores[botId], upper);
+        await this.onMessageFromClient(botId, { type: PacketType.MOVE, action: 'score', category: bestCategory });
+    }
 
     private buildDesiredLocks(keepers: number[], diceValues: number[]): boolean[] {
         const countToKeep: Record<number, number> = {};
@@ -241,139 +298,191 @@ export default class GameServer implements IGameServer {
     }
 
     async onMessageFromClient(userId: string, data: any) {
-        if (userId !== this.state.currentPlayerTurn || this.state.gameOver) {
-            return;
-        }
-        if (data.type !== PacketType.MOVE) {
-            return;
-        }
+        if (this.state.gameOver) return;
+        if (data.type !== PacketType.MOVE) return;
 
-        let validMove = false;
-        if (data.action === 'roll' && this.state.rollsLeft > 0) {
-            this.state.dice = this.rollDice();
-            this.state.rollsLeft--;
-            this.state.hasRolledThisTurn = true;
-            validMove = true;
-        } else if (data.action === 'lock' && data.diceIndices) {
-            if (!this.state.hasRolledThisTurn) {
-                validMove = false;
-            } else {
-                data.diceIndices.forEach((i: number) => {
-                    if (i >= 0 && i < 5) this.state.lockedDice[i] = !this.state.lockedDice[i];
-                });
+        if (this.mode === 'sync') {
+            if (userId !== this.state.currentPlayerTurn) return;
+            let validMove = false;
+            if (data.action === 'roll' && this.state.rollsLeft > 0) {
+                this.state.dice = this.rollDice();
+                this.state.rollsLeft--;
+                this.state.hasRolledThisTurn = true;
                 validMove = true;
-            }
-        } else if (data.action === 'joker' && data.category && this.state.pendingJoker?.playerId === userId) {
-            // Handle joker choice
-            const options = this.getJokerOptions(userId);
-            if (options.includes(data.category)) {
-                const lower = ['ThreeOfAKind', 'FourOfAKind', 'FullHouse', 'SmallStraight', 'LargeStraight', 'Chance'];
-                if (lower.includes(data.category)) {
-                    // Lower categories get full points for Yatzy joker
-                    this.state.scores[userId][data.category] = this.calculateScore(this.state.dice, data.category);
+            } else if (data.action === 'lock' && data.diceIndices) {
+                if (!this.state.hasRolledThisTurn) {
+                    validMove = false;
                 } else {
-                    // Upper categories get 0 (forced)
-                    this.state.scores[userId][data.category] = 0;
-                }
-                this.state.pendingJoker = null;
-                this.state.roundsPlayed[userId] = (this.state.roundsPlayed[userId] || 0) + 1;
-                this.state.rollsLeft = 3;
-                this.state.lockedDice = [false, false, false, false, false];
-                this.state.hasRolledThisTurn = false;
-                this.state.currentPlayerTurn = this.getNextElement(this.players, userId);
-                validMove = true;
-                this.state.gameOver = this.isGameOver();
-            }
-        } else if (data.action === 'score' && data.category && this.state.scores[userId][data.category] === null) {
-            if (!this.state.hasRolledThisTurn) {
-                validMove = false;
-            } else {
-                // Check for Yatzy bonus first
-                const bonusResult = this.handleYatzyBonus(userId, this.state.dice);
-                if (bonusResult.needsJokerChoice) {
-                    this.state.pendingJoker = { playerId: userId, diceValue: this.state.dice[0] };
-                    // Send joker options to client
-                    const options = this.getJokerOptions(userId);
-                    this.gameHelper!.sendMessageToClient(userId, {
-                        type: 'JOKER_CHOICE',
-                        options,
-                        diceValue: this.state.dice[0],
+                    data.diceIndices.forEach((i: number) => {
+                        if (i >= 0 && i < 5) this.state.lockedDice[i] = !this.state.lockedDice[i];
                     });
-                    return;
+                    validMove = true;
                 }
-                
-                this.state.scores[userId][data.category] = this.calculateScore(this.state.dice, data.category);
-                const upper = this.getUpperScore(userId);
-                if ((this.state.scores[userId]['Bonus'] == null) && upper >= 63) {
-                    this.state.scores[userId]['Bonus'] = 35;
+            } else if (data.action === 'joker' && data.category && this.state.pendingJoker?.playerId === userId) {
+                const options = this.getJokerOptions(userId);
+                if (options.includes(data.category)) {
+                    const lower = ['ThreeOfAKind', 'FourOfAKind', 'FullHouse', 'SmallStraight', 'LargeStraight', 'Chance'];
+                    if (lower.includes(data.category)) this.state.scores[userId][data.category] = this.calculateScore(this.state.dice, data.category);
+                    else this.state.scores[userId][data.category] = 0;
+                    this.state.pendingJoker = null;
+                    this.state.roundsPlayed[userId] = (this.state.roundsPlayed[userId] || 0) + 1;
+                    this.state.rollsLeft = 3;
+                    this.state.lockedDice = [false, false, false, false, false];
+                    this.state.hasRolledThisTurn = false;
+                    this.state.currentPlayerTurn = this.getNextElement(this.players, userId);
+                    validMove = true;
+                    this.state.gameOver = this.isGameOver();
                 }
-                this.state.roundsPlayed[userId] = (this.state.roundsPlayed[userId] || 0) + 1;
-                this.state.rollsLeft = 3;
-                this.state.lockedDice = [false, false, false, false, false];
-                this.state.hasRolledThisTurn = false;
-                this.state.currentPlayerTurn = this.getNextElement(this.players, userId);
-                validMove = true;
-                this.state.gameOver = this.isGameOver();
+            } else if (data.action === 'score' && data.category && this.state.scores[userId][data.category] === null) {
+                if (!this.state.hasRolledThisTurn) validMove = false; else {
+                    const bonusResult = this.handleYatzyBonus(userId, this.state.dice);
+                    if (bonusResult.needsJokerChoice) {
+                        this.state.pendingJoker = { playerId: userId, diceValue: this.state.dice[0] };
+                        const options = this.getJokerOptions(userId);
+                        this.gameHelper!.sendMessageToClient(userId, { type: 'JOKER_CHOICE', options, diceValue: this.state.dice[0] });
+                        return;
+                    }
+                    this.state.scores[userId][data.category] = this.calculateScore(this.state.dice, data.category);
+                    const upper = this.getUpperScore(userId);
+                    if ((this.state.scores[userId]['Bonus'] == null) && upper >= 63) this.state.scores[userId]['Bonus'] = 35;
+                    this.state.roundsPlayed[userId] = (this.state.roundsPlayed[userId] || 0) + 1;
+                    this.state.rollsLeft = 3;
+                    this.state.lockedDice = [false, false, false, false, false];
+                    this.state.hasRolledThisTurn = false;
+                    this.state.currentPlayerTurn = this.getNextElement(this.players, userId);
+                    validMove = true;
+                    this.state.gameOver = this.isGameOver();
+                }
             }
-        }
-
-        if (validMove) {
-            this.resetTurnTimer();
-            this.players.forEach((player) => {
-                this.gameHelper!.sendMessageToClient(player, {
-                    type: PacketType.CHANGE_TURN,
-                    dice: this.state.dice,
-                    rollsLeft: this.state.rollsLeft,
-                    lockedDice: this.state.lockedDice,
-                    scores: this.state.scores,
-                    currentPlayerTurn: this.state.currentPlayerTurn,
-                    hasRolledThisTurn: this.state.hasRolledThisTurn,
-                    pendingJoker: this.state.pendingJoker,
-                });
-            });
-
-            if (this.state.gameOver) {
-                if (this.turnTimeoutHandle) clearTimeout(this.turnTimeoutHandle);
+            if (validMove) {
+                this.resetTurnTimer();
                 this.players.forEach((player) => {
                     this.gameHelper!.sendMessageToClient(player, {
-                        type: PacketType.GAME_OVER,
-                        winner: this.state.gameWinner,
+                        type: PacketType.CHANGE_TURN,
+                        dice: this.state.dice,
+                        rollsLeft: this.state.rollsLeft,
+                        lockedDice: this.state.lockedDice,
+                        scores: this.state.scores,
+                        currentPlayerTurn: this.state.currentPlayerTurn,
+                        hasRolledThisTurn: this.state.hasRolledThisTurn,
+                        pendingJoker: this.state.pendingJoker,
                     });
                 });
-                await this.gameHelper!.finishGame(this.state.gameWinner);
+                if (this.state.gameOver) {
+                    if (this.turnTimeoutHandle) clearTimeout(this.turnTimeoutHandle);
+                    this.players.forEach((player) => {
+                        this.gameHelper!.sendMessageToClient(player, { type: PacketType.GAME_OVER, winner: this.state.gameWinner });
+                    });
+                    await this.gameHelper!.finishGame(this.state.gameWinner);
+                }
+                const nextPlayer = this.players.find(p => p === this.state.currentPlayerTurn);
+                if (nextPlayer && this.state.currentPlayerTurn.includes('bot')) await this.runBotTurn(this.state.currentPlayerTurn);
             }
+            return;
+        }
 
-            const nextPlayer = this.players.find(p => p === this.state.currentPlayerTurn);
-            if (nextPlayer && this.state.currentPlayerTurn.includes('bot')) {
-                await this.runBotTurn(this.state.currentPlayerTurn);
+        // async mode
+        const ps = this.state.playersState[userId];
+        if (!ps) return;
+        let valid = false;
+        if (data.action === 'roll' && ps.rollsLeft > 0) {
+            ps.dice = this.rollDiceForPlayer(userId);
+            ps.rollsLeft--;
+            ps.hasRolledThisTurn = true;
+            valid = true;
+        } else if (data.action === 'lock' && data.diceIndices) {
+            if (!ps.hasRolledThisTurn) valid = false; else {
+                data.diceIndices.forEach((i: number) => { if (i >= 0 && i < 5) ps.lockedDice[i] = !ps.lockedDice[i]; });
+                valid = true;
+            }
+        } else if (data.action === 'score' && data.category && this.state.scores[userId][data.category] === null) {
+            if (!ps.hasRolledThisTurn) valid = false; else {
+                const score = this.calculateScore(ps.dice, data.category);
+                this.state.scores[userId][data.category] = score;
+                const upper = this.getUpperScore(userId);
+                if ((this.state.scores[userId]['Bonus'] == null) && upper >= 63) this.state.scores[userId]['Bonus'] = 35;
+                this.state.roundsPlayed[userId] = (this.state.roundsPlayed[userId] || 0) + 1;
+                ps.rollsLeft = 3;
+                ps.lockedDice = [false,false,false,false,false];
+                ps.hasRolledThisTurn = false;
+                valid = true;
+                this.state.gameOver = this.isGameOver();
             }
         }
-    }    
+        if (valid) {
+            // personalize update per player
+            this.players.forEach((pid) => {
+                const p = this.state.playersState[pid];
+                this.gameHelper!.sendMessageToClient(pid, {
+                    type: PacketType.CHANGE_TURN,
+                    dice: p.dice,
+                    rollsLeft: p.rollsLeft,
+                    lockedDice: p.lockedDice,
+                    scores: this.state.scores,
+                    currentPlayerTurn: pid, // always allow local actions
+                    hasRolledThisTurn: p.hasRolledThisTurn,
+                    pendingJoker: p.pendingJoker,
+                });
+            });
+            if (this.state.gameOver) {
+                this.players.forEach((player) => this.gameHelper!.sendMessageToClient(player, { type: PacketType.GAME_OVER, winner: this.state.gameWinner }));
+                await this.gameHelper!.finishGame(this.state.gameWinner);
+            }
+            if (userId.includes('bot')) return;
+            const botId = this.players.find(p => p.includes('bot'));
+            if (botId) await this.runBotRound(botId);
+        }
+    }
 
     async onInitialGameStateSent() {}
 
-    async getInitialGameState() {
+    async getInitialGameState(userId: string) {
+        if (this.mode === 'sync') {
+            return {
+                dice: this.state.dice,
+                rollsLeft: this.state.rollsLeft,
+                lockedDice: this.state.lockedDice,
+                scores: this.state.scores,
+                currentPlayerTurn: this.state.currentPlayerTurn,
+                hasRolledThisTurn: this.state.hasRolledThisTurn,
+                pendingJoker: this.state.pendingJoker,
+            };
+        }
+        const ps = this.state.playersState[userId];
         return {
-            dice: this.state.dice,
-            rollsLeft: this.state.rollsLeft,
-            lockedDice: this.state.lockedDice,
+            dice: ps?.dice || [1,1,1,1,1],
+            rollsLeft: ps?.rollsLeft ?? 3,
+            lockedDice: ps?.lockedDice || [false,false,false,false,false],
             scores: this.state.scores,
-            currentPlayerTurn: this.state.currentPlayerTurn,
-            hasRolledThisTurn: this.state.hasRolledThisTurn,
-            pendingJoker: this.state.pendingJoker,
+            currentPlayerTurn: userId,
+            hasRolledThisTurn: ps?.hasRolledThisTurn ?? false,
+            pendingJoker: ps?.pendingJoker || null,
         };
     }
 
     async getCurrentGameState(userId: string) {
+        if (this.mode === 'sync') {
+            return {
+                dice: this.state.dice,
+                rollsLeft: this.state.rollsLeft,
+                lockedDice: this.state.lockedDice,
+                scores: this.state.scores,
+                currentPlayerTurn: this.state.currentPlayerTurn,
+                gameOver: this.state.gameOver,
+                hasRolledThisTurn: this.state.hasRolledThisTurn,
+                pendingJoker: this.state.pendingJoker,
+            };
+        }
+        const ps = this.state.playersState[userId];
         return {
-            dice: this.state.dice,
-            rollsLeft: this.state.rollsLeft,
-            lockedDice: this.state.lockedDice,
+            dice: ps?.dice || [1,1,1,1,1],
+            rollsLeft: ps?.rollsLeft ?? 3,
+            lockedDice: ps?.lockedDice || [false,false,false,false,false],
             scores: this.state.scores,
-            currentPlayerTurn: this.state.currentPlayerTurn,
+            currentPlayerTurn: userId,
             gameOver: this.state.gameOver,
-            hasRolledThisTurn: this.state.hasRolledThisTurn,
-            pendingJoker: this.state.pendingJoker,
+            hasRolledThisTurn: ps?.hasRolledThisTurn ?? false,
+            pendingJoker: ps?.pendingJoker || null,
         };
     }
 
@@ -405,10 +514,12 @@ export default class GameServer implements IGameServer {
             await this.gameHelper!.finishGame(this.state.gameWinner);
             return;
         }
-        if (this.state.currentPlayerTurn === userId) {
-            this.state.currentPlayerTurn = this.players[0] || '';
+        if (this.mode === 'sync') {
+            if (this.state.currentPlayerTurn === userId) {
+                this.state.currentPlayerTurn = this.players[0] || '';
+            }
+            this.resetTurnTimer();
         }
-        this.resetTurnTimer();
     }
 
     private getNextElement(array: string[], currentElement: string): string {

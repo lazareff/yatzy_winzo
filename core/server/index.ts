@@ -81,6 +81,7 @@ wss.on('connection', async (client: any, req) => {
     // Read difficulty override from URL query
     const urlDifficulty = typeof address.query.difficulty === 'string' ? String(address.query.difficulty).toLowerCase() : undefined;
     const opponentPref = typeof address.query.opponent === 'string' ? String(address.query.opponent).toLowerCase() : undefined;
+    const gameMode = typeof address.query.mode === 'string' ? String(address.query.mode).toLowerCase() : undefined; // 'sync'|'async'
 
     let res = addJoinedIdToArray(client.winzoId);
     console.log('res', res);
@@ -100,6 +101,11 @@ wss.on('connection', async (client: any, req) => {
         if (urlDifficulty && ['easy','medium','hard'].includes(urlDifficulty)) {
             // @ts-ignore
             gameData.gameConfig = { ...(gameData.gameConfig || {}), botDifficulty: urlDifficulty };
+        }
+        // Apply mode override
+        if (gameMode && ['sync','async'].includes(gameMode)) {
+            // @ts-ignore
+            gameData.gameConfig = { ...(gameData.gameConfig || {}), mode: gameMode };
         }
         if(res.isAdded && res.isFull) {
             game = new (require(`../../games/${gamesData[gameToRun].name}/GameServer.ts`).default)();
