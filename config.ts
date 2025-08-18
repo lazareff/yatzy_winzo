@@ -16,7 +16,8 @@ export const gamesData: { [key: number]: IGameData } = {
             noOfPlayers: 2,
             botDifficulty: 'medium',
             turnTimeoutMs: 30000,
-            roundsPerPlayer: 13
+            roundsPerPlayer: 13,
+            rollsPerTurn: 3
         },
         playersData: {
             currentPlayerInfo: {

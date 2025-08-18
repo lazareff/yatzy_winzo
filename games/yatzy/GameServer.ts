@@ -35,14 +35,16 @@ export default class GameServer implements IGameServer {
     private bot: YatzyBot | null = null;
     private turnTimeoutHandle: any = null;
     private turnTimeoutMs: number = 30000;
+    private rollsPerTurn: number = 3;
     async initialise(gameHelper: GameHelper, gameData: GameData) {
         this.gameHelper = gameHelper;
         this.players = gameData.joinedPlayers;
         this.mode = (gameData.gameConfig?.mode === 'async') ? 'async' : 'sync';
         const roundsPerPlayer = Number(gameData.gameConfig?.roundsPerPlayer || 13);
+        this.rollsPerTurn = Math.max(1, Number(gameData.gameConfig?.rollsPerTurn || 3));
         this.state = {
             dice: [1, 1, 1, 1, 1],
-            rollsLeft: 3,
+            rollsLeft: this.rollsPerTurn,
             lockedDice: [false, false, false, false, false],
             scores: this.players.reduce((acc, p) => ({
                 ...acc,
@@ -63,7 +65,7 @@ export default class GameServer implements IGameServer {
                 ...acc,
                 [p]: {
                     dice: [1,1,1,1,1],
-                    rollsLeft: 3,
+                    rollsLeft: this.rollsPerTurn,
                     lockedDice: [false,false,false,false,false],
                     hasRolledThisTurn: false,
                     pendingJoker: null,
@@ -326,7 +328,7 @@ export default class GameServer implements IGameServer {
                     else this.state.scores[userId][data.category] = 0;
                     this.state.pendingJoker = null;
                     this.state.roundsPlayed[userId] = (this.state.roundsPlayed[userId] || 0) + 1;
-                    this.state.rollsLeft = 3;
+                    this.state.rollsLeft = this.rollsPerTurn;
                     this.state.lockedDice = [false, false, false, false, false];
                     this.state.hasRolledThisTurn = false;
                     this.state.currentPlayerTurn = this.getNextElement(this.players, userId);
@@ -346,7 +348,7 @@ export default class GameServer implements IGameServer {
                     const upper = this.getUpperScore(userId);
                     if ((this.state.scores[userId]['Bonus'] == null) && upper >= 63) this.state.scores[userId]['Bonus'] = 35;
                     this.state.roundsPlayed[userId] = (this.state.roundsPlayed[userId] || 0) + 1;
-                    this.state.rollsLeft = 3;
+                    this.state.rollsLeft = this.rollsPerTurn;
                     this.state.lockedDice = [false, false, false, false, false];
                     this.state.hasRolledThisTurn = false;
                     this.state.currentPlayerTurn = this.getNextElement(this.players, userId);
@@ -402,7 +404,7 @@ export default class GameServer implements IGameServer {
                 const upper = this.getUpperScore(userId);
                 if ((this.state.scores[userId]['Bonus'] == null) && upper >= 63) this.state.scores[userId]['Bonus'] = 35;
                 this.state.roundsPlayed[userId] = (this.state.roundsPlayed[userId] || 0) + 1;
-                ps.rollsLeft = 3;
+                ps.rollsLeft = this.rollsPerTurn;
                 ps.lockedDice = [false,false,false,false,false];
                 ps.hasRolledThisTurn = false;
                 valid = true;
