@@ -20,6 +20,20 @@ function wsConnect(id) {
         params.set('opponent', finalOpp);
         try { window.localStorage?.setItem('opponent', finalOpp); } catch {}
     }
+    const modeFromQuery = (query as any).mode;
+    const storedMode = window.localStorage?.getItem('mode') || '';
+    const finalMode = (typeof modeFromQuery === 'string' && modeFromQuery.trim() !== '') ? modeFromQuery.toLowerCase() : storedMode;
+    if (finalMode) {
+        params.set('mode', finalMode);
+        try { window.localStorage?.setItem('mode', finalMode); } catch {}
+    }
+    const gameIdFromQuery = (query as any).gameId;
+    const storedGameId = window.localStorage?.getItem('gameId') || '';
+    const finalGameId = (typeof gameIdFromQuery === 'string' && gameIdFromQuery.trim() !== '') ? gameIdFromQuery : storedGameId;
+    if (finalGameId) {
+        params.set('gameId', finalGameId);
+        try { window.localStorage?.setItem('gameId', finalGameId); } catch {}
+    }
     const wss = new WebSocket(`${WS_URL}?${params.toString()}`);
 
     wss.onopen = (ws) => {

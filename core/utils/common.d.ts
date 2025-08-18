@@ -16,6 +16,7 @@ export interface IGameConfig extends Record<string, any> {
     botDifficulty?: 'easy' | 'medium' | 'hard';
     turnTimeoutMs?: number;
     roundsPerPlayer?: number;
+    mode?: 'sync' | 'async';
 }
 
 interface IPlayerInfo {
