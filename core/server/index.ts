@@ -27,12 +27,6 @@ let gameList: GameList[];
 let game: IGameServer;
 
 const gameConfig = gamesData[gameToRun].config;
-// Optional: default bot difficulty from env (overridden by URL param if provided)
-const envDifficulty = String(process.env.BOT_DIFFICULTY || '').toLowerCase();
-if (['easy', 'medium', 'hard'].includes(envDifficulty)) {
-    // @ts-ignore
-    gameConfig.botDifficulty = envDifficulty;
-}
 
 const gameHelper: GameHelper = {
     sendMessageToClient,
@@ -87,10 +81,8 @@ wss.on('connection', async (client: any, req) => {
     // Read difficulty override from URL query
     const urlDifficulty = typeof address.query.difficulty === 'string' ? String(address.query.difficulty).toLowerCase() : undefined;
     const opponentPref = typeof address.query.opponent === 'string' ? String(address.query.opponent).toLowerCase() : undefined;
-    const gameMode = typeof address.query.mode === 'string' ? String(address.query.mode).toLowerCase() : undefined; // 'async' | 'sync'
-    const gameId = typeof address.query.gameId === 'string' ? String(address.query.gameId) : undefined;
 
-    let res = addJoinedIdToArray(client.winzoId, gameId);
+    let res = addJoinedIdToArray(client.winzoId);
     console.log('res', res);
     if (res) {
         gameData.joinedPlayers = res.values;
@@ -108,11 +100,6 @@ wss.on('connection', async (client: any, req) => {
         if (urlDifficulty && ['easy','medium','hard'].includes(urlDifficulty)) {
             // @ts-ignore
             gameData.gameConfig = { ...(gameData.gameConfig || {}), botDifficulty: urlDifficulty };
-        }
-        // Apply mode override if present
-        if (gameMode && ['async','sync'].includes(gameMode)) {
-            // @ts-ignore
-            gameData.gameConfig = { ...(gameData.gameConfig || {}), mode: gameMode };
         }
         if(res.isAdded && res.isFull) {
             game = new (require(`../../games/${gamesData[gameToRun].name}/GameServer.ts`).default)();
@@ -219,7 +206,7 @@ console.log(`Listening on http://localhost:${port}`);
  *
  * @param winzoId
  */
-function addJoinedIdToArray(winzoId: string | number, gameId?: string): { key: string, values: (string | number)[], isFull: boolean, isAdded: boolean} | false {
+function addJoinedIdToArray(winzoId: string | number): { key: string, values: (string | number)[], isFull: boolean, isAdded: boolean} | false {
     // Проверка, что joinedPlayersList — массив
     if (!Array.isArray(joinedPlayersList)) {
         return false;
@@ -242,17 +229,11 @@ function addJoinedIdToArray(winzoId: string | number, gameId?: string): { key: s
         return { key, values, isFull: values.length >= gameConfig.noOfPlayers, isAdded: false };
     }
 
-    // 2. Ищем массив с количеством элементов меньше MAX_ARRAY_LENGTH, с учётом gameId
+    // 2. Ищем массив с количеством элементов меньше MAX_ARRAY_LENGTH
     const availableObj = joinedPlayersList.find(obj => {
         if (!obj || typeof obj !== 'object') return false;
-        const key = Object.keys(obj)[0];
-        const values = Object.values(obj)[0] as any;
-        if (!Array.isArray(values)) return false;
-        if (typeof gameId === 'string' && gameId.trim() !== '') {
-            return key === gameId && values.length < gameConfig.noOfPlayers;
-        }
-        // Без gameId — любой неполный стол
-        return values.length < gameConfig.noOfPlayers && !String(key).startsWith('gid:');
+        const values = Object.values(obj)[0];
+        return Array.isArray(values) && values.length < gameConfig.noOfPlayers;
     });
 
     if (availableObj) {
@@ -267,9 +248,7 @@ function addJoinedIdToArray(winzoId: string | number, gameId?: string): { key: s
         .filter(obj => obj && typeof obj === 'object')
         .map(obj => Number(Object.keys(obj)[0]))
         .filter(key => !isNaN(key));
-    const newKey = (typeof gameId === 'string' && gameId.trim() !== '')
-        ? gameId
-        : (keys.length > 0 ? String(Math.max(...keys) + 1) : '1');
+    const newKey = keys.length > 0 ? String(Math.max(...keys) + 1) : '1';
     const newValues: (string | number)[] = [winzoId];
     joinedPlayersList.push({ [newKey]: newValues });
     return { key: newKey, values: newValues, isFull: newValues.length >= gameConfig.noOfPlayers, isAdded: true };

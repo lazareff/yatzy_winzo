@@ -52,7 +52,6 @@ You can pass a custom player id: `http://localhost:3000/?id=1`
 
 - `PORT` — server port
 - `WS_URL` — WebSocket URL (used by client bundle)
-- `BOT_DIFFICULTY` — default bot difficulty (`easy|medium|hard`) used by server if URL param is not provided
 
 ## Bot and difficulty (Yatzy)
 
@@ -63,18 +62,12 @@ You can pass a custom player id: `http://localhost:3000/?id=1`
     - `opponent=human` — wait for a real second player
   - Difficulty:
     - `difficulty=easy|medium|hard`
-  - Mode:
-    - `mode=sync` — классический пошаговый режим
-    - `mode=async` — асинхронный режим: каждый ходит независимо, виден текущий счёт соперника
-  - Game grouping:
-    - `gameId=<any-string>` — игроки с одинаковым `gameId` попадают за один стол; если не задан, матчмейкинг как раньше
 
 Examples:
-- `http://localhost:3000/?id=1&opponent=bot&difficulty=easy&mode=async`
-- `http://localhost:3000/?id=1&opponent=human&mode=sync` (open second tab as `?id=2`)
-- `http://localhost:3000/?id=7&opponent=human&mode=async&gameId=table42` (вторая вкладка: `?id=8&gameId=table42`)
+- `http://localhost:3000/?id=1&opponent=bot&difficulty=easy`
+- `http://localhost:3000/?id=1&opponent=human` (open second tab as `?id=2`)
 
-Default difficulty can be set in `config.ts` under `botDifficulty` or globally via env `BOT_DIFFICULTY`. URL param still takes precedence.
+Default difficulty can be set in `config.ts` under `botDifficulty`.
 
 Levels behavior:
 - easy: чаще выбирает не оптимальный вариант, допускает ошибки
